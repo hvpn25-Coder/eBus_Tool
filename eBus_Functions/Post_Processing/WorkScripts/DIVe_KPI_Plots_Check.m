@@ -23,7 +23,7 @@ updateStatusBox(statusBox, 0.05, 'Reading KPI/plot configuration...');
 
 thisScriptDir = fileparts(mfilename('fullpath'));
 kpiBankPath = fullfile(thisScriptDir, '..', 'KPIs_Plots', 'eBus_KPIs_Plots_Bank.xlsx');
-templateDir = fullfile(thisScriptDir, '..', 'Sim_Doc_Templates');
+templateDir = fullfile(thisScriptDir, '..', 'Report_Templates');
 
 if ~isfile(kpiBankPath)
     error('KPI bank not found at: %s', kpiBankPath);
