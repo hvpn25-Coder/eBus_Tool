@@ -138,7 +138,7 @@ for iFile = 1:numFiles
 end
 
 updateStatusBox(statusBox, 0.66, 'Generating plots from Plots sheet...');
-figSaveDir = createFigureOutputFolder(resultsDir);
+figSaveDir = createFigureOutputFolder(resultsDir, "Default");
 plotForAllFiles(plotConfig, contextsByFile, fileLabels, colorMap, "", false, figSaveDir);
 
 groups = string(kpiConfig.("Group"));
@@ -430,7 +430,7 @@ end
 updateStatusBox(statusBox, 0.45, sprintf('Plotting group: %s', groupName));
 figSaveDir = "";
 if isfield(data, 'resultsDir') && strlength(string(data.resultsDir)) > 0 && isfolder(data.resultsDir)
-    figSaveDir = createFigureOutputFolder(data.resultsDir);
+    figSaveDir = createFigureOutputFolder(data.resultsDir, groupName);
 end
 plotForAllFiles(data.plotConfig, data.contextsByFile, data.fileLabels, data.colorMap, groupName, true, figSaveDir);
 updateStatusBox(statusBox, 1.00, 'Plot-group rendering complete.');
@@ -687,27 +687,23 @@ end
 mkdir(outDir);
 end
 
-function figDir = createFigureOutputFolder(resultsDir)
+function figDir = createFigureOutputFolder(resultsDir, folderLabel)
 figDir = "";
 if strlength(string(resultsDir)) == 0 || ~isfolder(resultsDir)
     return;
 end
 
-timeStamp = char(datetime('now', 'Format', 'yyyyMMdd_HHmmss'));
-folderName = [timeStamp '_Fig'];
+if nargin < 2 || strlength(strtrim(string(folderLabel))) == 0
+    folderLabel = "Default";
+end
+
+safeLabel = string(sanitizeFileName(folderLabel));
+folderName = char(safeLabel + "_Fig");
 figDir = fullfile(char(string(resultsDir)), folderName);
 
 if ~isfolder(figDir)
     mkdir(figDir);
-    return;
 end
-
-suffix = 1;
-while isfolder(figDir)
-    figDir = fullfile(char(string(resultsDir)), sprintf('%s_%02d', folderName, suffix));
-    suffix = suffix + 1;
-end
-mkdir(figDir);
 end
 
 function safeName = sanitizeFileName(inName)
@@ -2123,12 +2119,9 @@ for iFile = 1:numel(contextsByFile)
                 continue;
             end
 
-            if groupNames(iGroup) == "GENERAL"
-                figTitle = sprintf('%s - Figure %s', fileLabel, string(figNo));
-            else
-                figTitle = sprintf('%s - %s - Figure %s', ...
-                    fileLabel, upper(groupNames(iGroup)), string(figNo));
-            end
+            groupLabel = upper(groupNames(iGroup));
+            figTitle = sprintf('Figure %s _ %s _ %s', ...
+                char(string(figNo)), char(groupLabel), char(string(fileLabel)));
 
             hFig = figure('Name', figTitle, 'NumberTitle', 'off', 'Color', 'w');
             t = tiledlayout(nSubplots, 1, 'TileSpacing', 'compact', 'Padding', 'compact');
@@ -2258,7 +2251,7 @@ for iFile = 1:numel(contextsByFile)
 
             if saveFigs
                 try
-                    baseName = sprintf('%s_%s_Figure_%s', char(fileLabel), char(groupNames(iGroup)), char(string(figNo)));
+                    baseName = sprintf('Figure_%s_%s_%s', char(string(figNo)), char(groupNames(iGroup)), char(fileLabel));
                     safeBase = sanitizeFileName(baseName);
                     figPath = makeUniqueFilePath(char(string(figSaveDir)), safeBase, '.fig');
                     savefig(hFig, figPath);
