@@ -10,6 +10,9 @@ cd(repoRoot);
 scriptsDir = fullfile(repoRoot, 'eBus_Functions', 'Post_Processing', 'WorkScripts');
 script1 = fullfile(scriptsDir, 'DIVe_KPI_Plots_Check.m');
 script2 = fullfile(scriptsDir, 'Batch_DIVe_Sim_Processing.m');
+if ~localIsFolderOnPath(scriptsDir)
+    addpath(scriptsDir);
+end
 
 bannerWidth = 118;
 topBottomSep = repmat('=', 1, bannerWidth);
@@ -26,15 +29,17 @@ fprintf('\n');
 localPrintScriptLink( ...
     'DIVe_KPI_Plots_Check', ...
     script1, ...
+    'matlab:DIVe_KPI_Plots_Check', ...
     'Check KPI''s, Plots and Generate reports for one or multiple simulations. Do Root Cause Analysis.');
 localPrintScriptLink( ...
     'Batch_DIVe_Sim_Processing', ...
     script2, ...
+    'matlab:Batch_DIVe_Sim_Processing', ...
     'Check KPI''s, Plots and Generate reports for a batch of simulations. Do Comparative Analysis.');
 fprintf('\n');
 end
 
-function localPrintScriptLink(label, scriptPath, descriptionText)
+function localPrintScriptLink(label, scriptPath, hrefCmd, descriptionText)
 bullet = char(9670); % solid diamond
 if ~isfile(scriptPath)
     fprintf('%s %s (missing: %s)\n', bullet, label, scriptPath);
@@ -42,9 +47,7 @@ if ~isfile(scriptPath)
     return;
 end
 
-escapedPath = strrep(scriptPath, '''', '''''');
-hrefCmd = sprintf('matlab:run(''%s'')', escapedPath);
-fprintf('%s <a href="%s"><strong>%s</strong></a>\n', bullet, hrefCmd, label);
+fprintf('%s <a href="%s">%s</a>\n', bullet, hrefCmd, label);
 fprintf('\t%s\n\n', descriptionText);
 end
 
@@ -52,4 +55,9 @@ function localPrintCentered(textValue, totalWidth)
 textValue = char(string(textValue));
 padCount = max(0, floor((totalWidth - strlength(string(textValue))) / 2));
 fprintf('%s%s\n', repmat(' ', 1, padCount), textValue);
+end
+
+function tf = localIsFolderOnPath(folderPath)
+pathParts = strsplit(path, pathsep);
+tf = any(strcmpi(pathParts, folderPath));
 end
