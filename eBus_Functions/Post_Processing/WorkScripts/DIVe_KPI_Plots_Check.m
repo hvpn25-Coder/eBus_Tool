@@ -196,7 +196,7 @@ end
 
 assignin('base', 'groupTables', groupTables);
 registerViewMoreLinks(groups, kpis, units, srNos, resultMatrix, resultValueMatrix, columnNames, orderedGroups, firstColHeaders, ...
-    plotConfig, contextsByFile, fileLabels, colorMap, templateDir, selectedPath, variableNames, resultsDir, kpiResultFileName);
+    plotConfig, contextsByFile, fileLabels, colorMap, templateDir, selectedPath, variableNames, resultsDir, kpiResultFileName, kpiBankPath);
 updateStatusBox(statusBox, 1.00, 'Execution complete.');
 printReportFolderLink(resultsDir);
 printViewMoreLink();
@@ -296,6 +296,7 @@ if ~supportsCmdWinJavaStyling()
     return;
 end
 
+linePrinted = false;
 try
     cmdWinDoc = com.mathworks.mde.cmdwin.CmdWinDocument.getInstance;
     if isempty(cmdWinDoc)
@@ -304,9 +305,11 @@ try
 
     startPos = cmdWinDoc.getLength;
     fprintf('%s\n', char(lineText));
+    linePrinted = true;
     drawnow limitrate;
     endPos = cmdWinDoc.getLength;
     if endPos <= startPos
+        ok = true;
         return;
     end
 
@@ -322,7 +325,7 @@ try
     cmdWinDoc.setCharacterAttributes(startPos, endPos - startPos, attrs, false);
     ok = true;
 catch
-    ok = false;
+    ok = linePrinted;
 end
 end
 
@@ -336,6 +339,16 @@ end
 tf = false;
 try
     tf = usejava('desktop') && usejava('jvm');
+    if tf
+        releaseTag = regexp(version('-release'), '\d{4}[ab]', 'match', 'once');
+        if ~isempty(releaseTag)
+            yr = str2double(releaseTag(1:4));
+            relHalf = lower(releaseTag(5));
+            if yr == 2023 && relHalf == 'b'
+                tf = false;
+            end
+        end
+    end
 catch
     tf = false;
 end
@@ -407,7 +420,7 @@ out = inText + string(repmat(' ', 1, padCount));
 end
 
 function registerViewMoreLinks(groups, kpis, units, srNos, resultMatrix, resultValueMatrix, columnNames, orderedGroups, firstColHeaders, ...
-    plotConfig, contextsByFile, fileLabels, colorMap, templateDir, selectedPath, variableNames, resultsDir, kpiResultFileName)
+    plotConfig, contextsByFile, fileLabels, colorMap, templateDir, selectedPath, variableNames, resultsDir, kpiResultFileName, kpiBankPath)
 data = struct();
 data.groups = groups;
 data.kpis = kpis;
@@ -429,6 +442,7 @@ data.templateDir = templateDir;
 data.selectedPath = selectedPath;
 data.resultsDir = resultsDir;
 data.kpiResultFileName = kpiResultFileName;
+data.kpiBankPath = kpiBankPath;
 [data.templateNames, data.templatePaths] = getTemplateDocuments(templateDir);
 
 assignin('base', 'kpiPlotsInteractiveData', data);
@@ -449,8 +463,24 @@ fprintf('\nKPI Groups:\n');
 printHyperlinkGrid(data.orderedGroups, "openKpiGroupDetails", true);
 fprintf('\nPlots Groups:\n');
 printHyperlinkGrid(data.plotGroupNames, "openPlotGroupDetails", true);
+if isfield(data, 'kpiBankPath') && strlength(string(data.kpiBankPath)) > 0 && isfile(data.kpiBankPath)
+    bankPath = char(string(data.kpiBankPath));
+    bankCmd = sprintf('matlab:winopen(''%s'')', escapeForMatlabCharLiteral(bankPath));
+    fprintf('\nTo Add/Edit the KPI and Plot Bank excel <a href="%s">[eBus_KPIs_Plots_Bank.xlsx]</a>\n\n', bankCmd);
+end
 fprintf('\nGenerate Report:\n');
 printHyperlinkGrid(data.templateNames, "openGenerateReportTemplate", false);
+if isfield(data, 'templateDir') && strlength(string(data.templateDir)) > 0
+    templateBaseDir = char(string(data.templateDir));
+    simDocPath = fullfile(fileparts(templateBaseDir), 'Sim_Doc_Templates');
+    if ~isfolder(simDocPath)
+        simDocPath = templateBaseDir;
+    end
+    if isfolder(simDocPath)
+        templateCmd = sprintf('matlab:winopen(''%s'')', escapeForMatlabCharLiteral(simDocPath));
+        fprintf('\nTo Add/Edit the Report Template <a href="%s">[Sim_Doc_Templates]</a>\n', templateCmd);
+    end
+end
 fprintf('\n');
 end
 
