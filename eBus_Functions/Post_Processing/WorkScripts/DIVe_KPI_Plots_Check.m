@@ -208,11 +208,12 @@ sep = repmat('=', 1, totalWidth);
 plainGroupText = upper(string(groupName));
 padLeft = max(0, floor((totalWidth - strlength(plainGroupText)) / 2));
 groupLine = string(repmat(' ', 1, padLeft)) + plainGroupText;
+sepText = makeBlueBoldText(sep);
+groupText = makeBlueBoldText(groupLine);
 
-fprintf('\n');
-printStyledLine(sep, 'bluebold');
-printStyledLine(groupLine, 'bluebold');
-printStyledLine(sep, 'bluebold');
+fprintf('\n%s\n', sepText);
+fprintf('%s\n', groupText);
+fprintf('%s\n', sepText);
 end
 
 function printProcessedMatFileInfo(selectedPath, selectedFiles, fileLabels)
@@ -229,10 +230,6 @@ end
 
 function out = makeBoldText(inText)
 out = styleText(inText, 'bold');
-end
-
-function out = makeBlueText(inText)
-out = styleText(inText, 'blue');
 end
 
 function out = makeBlueBoldText(inText)
@@ -269,86 +266,13 @@ if ~isempty(cached)
     return;
 end
 
-tf = false;
 try
     releaseTag = regexp(version('-release'), '\d{4}[ab]', 'match', 'once');
+    tf = false;
     if ~isempty(releaseTag)
         yr = str2double(releaseTag(1:4));
         relHalf = releaseTag(5);
         tf = (yr > 2025) || (yr == 2025 && relHalf == 'a') || (yr == 2025 && relHalf == 'b');
-    end
-catch
-    tf = false;
-end
-cached = tf;
-end
-
-function printStyledLine(lineText, styleName)
-lineText = string(lineText);
-if applyCmdWinStyle(lineText, styleName)
-    return;
-end
-fprintf('%s\n', char(lineText));
-end
-
-function ok = applyCmdWinStyle(lineText, styleName)
-ok = false;
-if ~supportsCmdWinJavaStyling()
-    return;
-end
-
-linePrinted = false;
-try
-    cmdWinDoc = com.mathworks.mde.cmdwin.CmdWinDocument.getInstance;
-    if isempty(cmdWinDoc)
-        return;
-    end
-
-    startPos = cmdWinDoc.getLength;
-    fprintf('%s\n', char(lineText));
-    linePrinted = true;
-    drawnow limitrate;
-    endPos = cmdWinDoc.getLength;
-    if endPos <= startPos
-        ok = true;
-        return;
-    end
-
-    attrs = javax.swing.text.SimpleAttributeSet;
-    mode = lower(string(styleName));
-    if mode == "bold" || mode == "bluebold"
-        javax.swing.text.StyleConstants.setBold(attrs, true);
-    end
-    if mode == "blue" || mode == "bluebold"
-        javax.swing.text.StyleConstants.setForeground(attrs, java.awt.Color(0, 0, 255));
-    end
-
-    cmdWinDoc.setCharacterAttributes(startPos, endPos - startPos, attrs, false);
-    ok = true;
-catch
-    ok = linePrinted;
-end
-end
-
-function tf = supportsCmdWinJavaStyling()
-persistent cached;
-if ~isempty(cached)
-    tf = cached;
-    return;
-end
-
-tf = false;
-try
-    tf = usejava('desktop') && usejava('jvm');
-    if tf
-        releaseTag = regexp(version('-release'), '\d{4}[ab]', 'match', 'once');
-        if ~isempty(releaseTag)
-            yr = str2double(releaseTag(1:4));
-            relHalf = lower(releaseTag(5));
-            if yr == 2023 && relHalf == 'b'
-                tf = false;
-            end
-        end
     end
 catch
     tf = false;
@@ -1602,7 +1526,7 @@ else
         markShapeUnresolved(shp, rawText);
         return;
     end
-    imageMap(cacheKey) = char(imgPath);
+    cacheImagePath(imageMap, cacheKey, imgPath);
 end
 
 left = shp.Left;
@@ -1690,6 +1614,10 @@ if isnan(subNo)
 else
     cacheKey = sprintf('F%d_S%d', figNo, subNo);
 end
+end
+
+function cacheImagePath(imageMap, cacheKey, imgPath)
+imageMap(char(cacheKey)) = char(imgPath); %#ok<NASGU>
 end
 
 function imagePath = exportFigurePlaceholderImage(plotConfig, context, fileLabel, colorMap, figNo, subNo)
