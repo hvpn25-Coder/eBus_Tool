@@ -206,7 +206,7 @@ function printGroupHeader(groupName, totalWidth)
 sep = repmat('=', 1, totalWidth);
 plainGroupText = upper(string(groupName));
 groupText = makeBlueBoldText(plainGroupText);
-sepText = makeBlueText(sep);
+sepText = makeBlueBoldText(sep);
 padLeft = max(0, floor((totalWidth - strlength(plainGroupText)) / 2));
 
 fprintf('\n%s\n', sepText);
@@ -261,7 +261,7 @@ out = string([esc '[' char(code) 'm']) + inText + string([esc '[0m']);
 end
 
 function tf = supportsAnsiStyles()
-% ANSI style rendering is reliable from MATLAB R2025a in this workflow.
+% ANSI style rendering is enabled from MATLAB R2023b in this workflow.
 persistent cached;
 if ~isempty(cached)
     tf = cached;
@@ -274,7 +274,7 @@ try
     if ~isempty(releaseTag)
         yr = str2double(releaseTag(1:4));
         relHalf = releaseTag(5);
-        tf = (yr > 2025) || (yr == 2025 && relHalf == 'a') || (yr == 2025 && relHalf == 'b');
+        tf = (yr > 2023) || (yr == 2023 && relHalf == 'b');
     end
 catch
     tf = false;
