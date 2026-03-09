@@ -141,7 +141,7 @@ end
 
 updateStatusBox(statusBox, 0.66, 'Generating plots from Plots sheet...');
 figSaveDirs = createPerMatFigureGroupFolders(resultsDir, fileLabels, "Default");
-plotForAllFiles(plotConfig, contextsByFile, fileLabels, colorMap, "", false, figSaveDirs);
+plotForAllFiles(plotConfig, contextsByFile, fileLabels, colorMap, "", figSaveDirs);
 
 groups = string(kpiConfig.("Group"));
 kpis = string(kpiConfig.("KPI"));
@@ -391,7 +391,7 @@ printHyperlinkGrid(data.plotGroupNames, "openPlotGroupDetails", true);
 if isfield(data, 'kpiBankPath') && strlength(string(data.kpiBankPath)) > 0 && isfile(data.kpiBankPath)
     bankPath = char(string(data.kpiBankPath));
     bankCmd = sprintf('matlab:winopen(''%s'')', escapeForMatlabCharLiteral(bankPath));
-    fprintf('\nTo Add/Edit the KPI and Plot Bank excel <a href="%s">[eBus_KPIs_Plots_Bank.xlsx]</a>\n\n', bankCmd);
+    fprintf('\nTo Add/Edit the KPI and Plot Bank excel <a href="%s">[eBus_KPIs_Plots_Bank.xlsx]</a>\n', bankCmd);
 end
 fprintf('\nGenerate Report:\n');
 printHyperlinkGrid(data.templateNames, "openGenerateReportTemplate", false);
@@ -403,7 +403,7 @@ if isfield(data, 'templateDir') && strlength(string(data.templateDir)) > 0
     end
     if isfolder(simDocPath)
         templateCmd = sprintf('matlab:winopen(''%s'')', escapeForMatlabCharLiteral(simDocPath));
-        fprintf('\nTo Add/Edit the Report Template <a href="%s">[Sim_Doc_Templates]</a>\n', templateCmd);
+        fprintf('\nTo Add/Edit the Report Template <a href="%s">[Report_Templates]</a>\n', templateCmd);
     end
 end
 fprintf('\n');
@@ -460,7 +460,7 @@ figSaveDirs = strings(numel(data.fileLabels), 1);
 if isfield(data, 'resultsDir') && strlength(string(data.resultsDir)) > 0 && isfolder(data.resultsDir)
     figSaveDirs = createPerMatFigureGroupFolders(data.resultsDir, data.fileLabels, groupName);
 end
-plotForAllFiles(data.plotConfig, data.contextsByFile, data.fileLabels, data.colorMap, groupName, true, figSaveDirs);
+plotForAllFiles(data.plotConfig, data.contextsByFile, data.fileLabels, data.colorMap, groupName, figSaveDirs);
 updateStatusBox(statusBox, 1.00, 'Plot-group rendering complete.');
 closeStatusBox(statusBox);
 printViewMoreLink();
@@ -574,6 +574,7 @@ visibleLine = "To View more KPI's, Plots, Deep Analysis or Generate Report [view
 separator = repmat('=', 1, strlength(visibleLine));
 fprintf('%s\n', separator);
 fprintf('To View more KPI''s, Plots, Deep Analysis or Generate Report <a href="matlab:feval(openKpiPlotsViewMore)">[view more...]</a>\n');
+fprintf('%s\n', separator);
 end
 
 function printReportFolderLink(resultsDir)
@@ -1684,7 +1685,7 @@ for iSub = 1:numel(targetSubplots)
     hasRightYLabel = false;
 
     for iY = 1:height(yRows)
-        if ~shouldPlotRow(yRows(iY, :), false)
+        if ~shouldPlotRow(yRows(iY, :))
             continue;
         end
 
@@ -2185,7 +2186,7 @@ for i = 1:numel(paths)
 end
 end
 
-function plotForAllFiles(plotConfig, contextsByFile, fileLabels, colorMap, targetGroup, ignorePrintStatus, figSaveDir)
+function plotForAllFiles(plotConfig, contextsByFile, fileLabels, colorMap, targetGroup, figSaveDir)
 if isempty(plotConfig)
     return;
 end
@@ -2194,9 +2195,6 @@ if nargin < 5
     targetGroup = "";
 end
 if nargin < 6
-    ignorePrintStatus = false;
-end
-if nargin < 7
     figSaveDir = "";
 end
 figSaveDirsByFile = normalizePerFilePathList(figSaveDir, numel(contextsByFile));
@@ -2251,6 +2249,9 @@ for iFile = 1:numel(contextsByFile)
             if nSubplots == 0
                 continue;
             end
+            if ~hasPlottableFigureSignals(figRows)
+                continue;
+            end
 
             groupLabel = upper(groupNames(iGroup));
             figTitle = sprintf('Figure %s _ %s _ %s', ...
@@ -2300,7 +2301,7 @@ for iFile = 1:numel(contextsByFile)
                 hasRightYLabel = false;
 
                 for iY = 1:height(yRows)
-                    if ~shouldPlotRow(yRows(iY, :), ignorePrintStatus)
+                    if ~shouldPlotRow(yRows(iY, :))
                         continue;
                     end
 
@@ -2415,23 +2416,69 @@ end
 plotGroupNames = plotGroupNames(:);
 end
 
-function tf = shouldPlotRow(rowTable, ignorePrintStatus)
-if nargin >= 2 && ignorePrintStatus
-    tf = true;
-    return;
+function tf = shouldPlotRow(rowTable)
+tf = false;
+vars = string(rowTable.Properties.VariableNames);
+
+if ismember("Axis", vars)
+    axisVal = upper(strtrim(string(rowTable.("Axis")(1))));
+    if axisVal == "T" || axisVal == "X"
+        tf = true;
+        return;
+    end
 end
 
-if ~ismember("Print", string(rowTable.Properties.VariableNames))
-    tf = true;
+if ~ismember("Print", vars)
     return;
 end
 
 rawVal = rowTable.("Print")(1);
-if ismissing(rawVal) || (isstring(rawVal) && strlength(strtrim(rawVal)) == 0)
-    tf = true;
+if ismissing(rawVal)
     return;
 end
-tf = getDisplayMask(rawVal);
+
+if isstring(rawVal) || ischar(rawVal)
+    txt = strtrim(string(rawVal));
+    if strlength(txt) == 0
+        return;
+    end
+    numVal = str2double(txt);
+    tf = ~isnan(numVal) && (numVal == 1);
+    return;
+end
+
+if isnumeric(rawVal) || islogical(rawVal)
+    numVal = double(rawVal);
+    tf = isfinite(numVal) && (numVal == 1);
+    return;
+end
+
+txt = strtrim(string(rawVal));
+if strlength(txt) == 0 || ismissing(txt)
+    return;
+end
+numVal = str2double(txt);
+tf = ~isnan(numVal) && (numVal == 1);
+end
+
+function tf = hasPlottableFigureSignals(figRows)
+tf = false;
+if isempty(figRows) || ~ismember("Axis", string(figRows.Properties.VariableNames))
+    return;
+end
+
+axisKinds = upper(strtrim(string(figRows.("Axis"))));
+yRows = figRows(axisKinds == "Y", :);
+if isempty(yRows)
+    return;
+end
+
+for iRow = 1:height(yRows)
+    if shouldPlotRow(yRows(iRow, :))
+        tf = true;
+        return;
+    end
+end
 end
 
 function out = buildAxisLabel(labelVal, unitVal)
