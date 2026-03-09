@@ -85,6 +85,7 @@ updateStatusBox(statusBox, 0.11, 'Creating results folder...');
 resultsDir = createDiveResultsFolder(selectedPath);
 [~, resultsFolderName] = fileparts(resultsDir);
 kpiResultFileName = [resultsFolderName '.xlsx'];
+ensurePerMatOutputFolders(resultsDir, fileLabels);
 
 for iFile = 1:numFiles
     updateStatusBox(statusBox, 0.12 + 0.50 * (iFile - 1) / max(1, numFiles), ...
@@ -139,8 +140,8 @@ for iFile = 1:numFiles
 end
 
 updateStatusBox(statusBox, 0.66, 'Generating plots from Plots sheet...');
-figSaveDir = createFigureOutputFolder(resultsDir, "Default");
-plotForAllFiles(plotConfig, contextsByFile, fileLabels, colorMap, "", false, figSaveDir);
+figSaveDirs = createPerMatFigureGroupFolders(resultsDir, fileLabels, "Default");
+plotForAllFiles(plotConfig, contextsByFile, fileLabels, colorMap, "", false, figSaveDirs);
 
 groups = string(kpiConfig.("Group"));
 kpis = string(kpiConfig.("KPI"));
@@ -531,11 +532,11 @@ if ~any(data.plotGroupNames == groupName)
 end
 
 updateStatusBox(statusBox, 0.45, sprintf('Plotting group: %s', groupName));
-figSaveDir = "";
+figSaveDirs = strings(numel(data.fileLabels), 1);
 if isfield(data, 'resultsDir') && strlength(string(data.resultsDir)) > 0 && isfolder(data.resultsDir)
-    figSaveDir = createFigureOutputFolder(data.resultsDir, groupName);
+    figSaveDirs = createPerMatFigureGroupFolders(data.resultsDir, data.fileLabels, groupName);
 end
-plotForAllFiles(data.plotConfig, data.contextsByFile, data.fileLabels, data.colorMap, groupName, true, figSaveDir);
+plotForAllFiles(data.plotConfig, data.contextsByFile, data.fileLabels, data.colorMap, groupName, true, figSaveDirs);
 updateStatusBox(statusBox, 1.00, 'Plot-group rendering complete.');
 closeStatusBox(statusBox);
 printViewMoreLink();
@@ -572,6 +573,7 @@ if ~isfield(data, 'resultsDir') || strlength(string(data.resultsDir)) == 0 || ~i
     assignin('base', 'kpiPlotsInteractiveData', data);
 end
 resultsDir = data.resultsDir;
+reportDirs = createPerMatReportFolders(resultsDir, data.fileLabels);
 
 updateStatusBox(statusBox, 0.20, sprintf('Generating from template: %s', templateName));
 updateStatusBox(statusBox, 0.22, sprintf('Saving reports to: %s', resultsDir));
@@ -579,7 +581,7 @@ updateStatusBox(statusBox, 0.22, sprintf('Saving reports to: %s', resultsDir));
 for iFile = 1:numFiles
     updateStatusBox(statusBox, 0.20 + 0.70 * (iFile - 1) / max(1, numFiles), ...
         sprintf('Creating report %d/%d...', iFile, numFiles));
-    outputPath = buildReportOutputPath(resultsDir, templateName, data.fileLabels(iFile));
+    outputPath = buildReportOutputPath(reportDirs{iFile}, templateName, data.fileLabels(iFile));
     copyfile(templatePath, outputPath, 'f');
 
     placeholderMap = buildPlaceholderMapForFile(data.variableNames, data.resultMatrix(:, iFile));
@@ -810,6 +812,97 @@ figDir = fullfile(char(string(resultsDir)), folderName);
 
 if ~isfolder(figDir)
     mkdir(figDir);
+end
+end
+
+function [matDirs, figBaseDirs, reportBaseDirs] = ensurePerMatOutputFolders(resultsDir, fileLabels)
+nFiles = numel(fileLabels);
+matDirs = repmat({''}, nFiles, 1);
+figBaseDirs = repmat({''}, nFiles, 1);
+reportBaseDirs = repmat({''}, nFiles, 1);
+if strlength(string(resultsDir)) == 0 || ~isfolder(resultsDir)
+    return;
+end
+
+safeLabels = strings(nFiles, 1);
+for iFile = 1:nFiles
+    safeLabels(iFile) = string(sanitizeFileName(fileLabels(iFile)));
+    if strlength(strtrim(safeLabels(iFile))) == 0
+        safeLabels(iFile) = sprintf('MatFile_%02d', iFile);
+    end
+end
+safeLabels = string(matlab.lang.makeUniqueStrings(cellstr(safeLabels)));
+
+for iFile = 1:nFiles
+    matDir = fullfile(char(string(resultsDir)), char(safeLabels(iFile)));
+    if ~isfolder(matDir)
+        mkdir(matDir);
+    end
+    figDir = fullfile(matDir, 'Fig');
+    if ~isfolder(figDir)
+        mkdir(figDir);
+    end
+    reportDir = fullfile(matDir, 'Report');
+    if ~isfolder(reportDir)
+        mkdir(reportDir);
+    end
+    matDirs{iFile} = matDir;
+    figBaseDirs{iFile} = figDir;
+    reportBaseDirs{iFile} = reportDir;
+end
+end
+
+function figSaveDirs = createPerMatFigureGroupFolders(resultsDir, fileLabels, groupLabel)
+[~, figBaseDirs, ~] = ensurePerMatOutputFolders(resultsDir, fileLabels);
+nFiles = numel(figBaseDirs);
+figSaveDirs = repmat({''}, nFiles, 1);
+for iFile = 1:nFiles
+    baseDir = string(figBaseDirs{iFile});
+    if strlength(baseDir) == 0 || ~isfolder(char(baseDir))
+        continue;
+    end
+    figSaveDirs{iFile} = char(createFigureOutputFolder(char(baseDir), groupLabel));
+end
+end
+
+function reportDirs = createPerMatReportFolders(resultsDir, fileLabels)
+[~, ~, reportBaseDirs] = ensurePerMatOutputFolders(resultsDir, fileLabels);
+reportDirs = reportBaseDirs;
+end
+
+function outPaths = normalizePerFilePathList(pathInput, nFiles)
+outPaths = repmat({''}, nFiles, 1);
+if nFiles <= 0
+    return;
+end
+
+if ischar(pathInput) || (isstring(pathInput) && isscalar(pathInput))
+    p = char(string(pathInput));
+    if strlength(strtrim(string(p))) > 0
+        outPaths(:) = {p};
+    end
+    return;
+end
+
+if isstring(pathInput)
+    n = min(nFiles, numel(pathInput));
+    for i = 1:n
+        p = char(string(pathInput(i)));
+        if strlength(strtrim(string(p))) > 0
+            outPaths{i} = p;
+        end
+    end
+    return;
+end
+
+if iscell(pathInput)
+    n = min(nFiles, numel(pathInput));
+    for i = 1:n
+        p = char(string(pathInput{i}));
+        if strlength(strtrim(string(p))) > 0
+            outPaths{i} = p;
+        end
+    end
 end
 end
 
@@ -2178,7 +2271,7 @@ end
 if nargin < 7
     figSaveDir = "";
 end
-saveFigs = strlength(string(figSaveDir)) > 0;
+figSaveDirsByFile = normalizePerFilePathList(figSaveDir, numel(contextsByFile));
 
 requiredPlotCols = ["Figure No", "Subplot", "Axis", "Signals and Titles"];
 for iCol = 1:numel(requiredPlotCols)
@@ -2207,6 +2300,11 @@ end
 for iFile = 1:numel(contextsByFile)
     context = contextsByFile{iFile};
     fileLabel = string(fileLabels(iFile));
+    fileFigSaveDir = "";
+    if iFile <= numel(figSaveDirsByFile)
+        fileFigSaveDir = string(figSaveDirsByFile{iFile});
+    end
+    saveFigs = strlength(fileFigSaveDir) > 0 && isfolder(char(fileFigSaveDir));
 
     for iGroup = 1:numel(groupNames)
         groupMask = allGroups == groupNames(iGroup);
@@ -2360,7 +2458,7 @@ for iFile = 1:numel(contextsByFile)
                 try
                     baseName = sprintf('Figure_%s_%s_%s', char(string(figNo)), char(groupNames(iGroup)), char(fileLabel));
                     safeBase = sanitizeFileName(baseName);
-                    figPath = makeUniqueFilePath(char(string(figSaveDir)), safeBase, '.fig');
+                    figPath = makeUniqueFilePath(char(fileFigSaveDir), safeBase, '.fig');
                     savefig(hFig, figPath);
                 catch
                 end
