@@ -79,6 +79,7 @@ end
 columnNames = cellstr(fileLabels);
 columnNames = matlab.lang.makeValidName(columnNames);
 columnNames = matlab.lang.makeUniqueStrings(columnNames, {'KPI'});
+printProcessedMatFileInfo(selectedPath, selectedFiles, fileLabels);
 
 updateStatusBox(statusBox, 0.11, 'Creating results folder...');
 resultsDir = createDiveResultsFolder(selectedPath);
@@ -211,6 +212,18 @@ padLeft = max(0, floor((totalWidth - strlength(plainGroupText)) / 2));
 fprintf('\n%s\n', sepText);
 fprintf('%s%s\n', repmat(' ', 1, padLeft), groupText);
 fprintf('%s\n', sepText);
+end
+
+function printProcessedMatFileInfo(selectedPath, selectedFiles, fileLabels)
+nFiles = numel(selectedFiles);
+fprintf('\nMAT files being processed (%d):\n', nFiles);
+for iFile = 1:nFiles
+    matName = string(fileLabels(iFile));
+    matPath = fullfile(char(string(selectedPath)), char(string(selectedFiles{iFile})));
+    fprintf('  %d) %s\n', iFile, char(matName));
+    fprintf('     %s\n', matPath);
+end
+fprintf('\n');
 end
 
 function out = makeBoldText(inText)
@@ -541,6 +554,9 @@ end
 end
 
 function printViewMoreLink()
+visibleLine = "To View more KPI's, Plots, Deep Analysis or Generate Report [view more...]";
+separator = repmat('=', 1, strlength(visibleLine));
+fprintf('%s\n', separator);
 fprintf('To View more KPI''s, Plots, Deep Analysis or Generate Report <a href="matlab:feval(openKpiPlotsViewMore)">[view more...]</a>\n');
 end
 
@@ -550,6 +566,7 @@ if nargin < 1 || strlength(string(resultsDir)) == 0 || ~isfolder(resultsDir)
 end
 [~, reportFolderName] = fileparts(char(string(resultsDir)));
 folderCmd = sprintf('matlab:winopen(''%s'')', escapeForMatlabCharLiteral(resultsDir));
+fprintf('\n');
 fprintf('Report Folder: <a href="%s">%s</a>\n', folderCmd, reportFolderName);
 fprintf('\n');
 end
