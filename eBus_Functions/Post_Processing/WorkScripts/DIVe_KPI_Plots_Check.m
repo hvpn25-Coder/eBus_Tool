@@ -205,13 +205,13 @@ closeStatusBox(statusBox);
 function printGroupHeader(groupName, totalWidth)
 sep = repmat('=', 1, totalWidth);
 plainGroupText = upper(string(groupName));
-groupText = makeBlueBoldText(plainGroupText);
-sepText = makeBlueBoldText(sep);
 padLeft = max(0, floor((totalWidth - strlength(plainGroupText)) / 2));
+groupLine = string(repmat(' ', 1, padLeft)) + plainGroupText;
 
-fprintf('\n%s\n', sepText);
-fprintf('%s%s\n', repmat(' ', 1, padLeft), groupText);
-fprintf('%s\n', sepText);
+fprintf('\n');
+printStyledLine(sep, 'bluebold');
+printStyledLine(groupLine, 'bluebold');
+printStyledLine(sep, 'bluebold');
 end
 
 function printProcessedMatFileInfo(selectedPath, selectedFiles, fileLabels)
@@ -261,7 +261,7 @@ out = string([esc '[' char(code) 'm']) + inText + string([esc '[0m']);
 end
 
 function tf = supportsAnsiStyles()
-% ANSI style rendering is enabled from MATLAB R2023b in this workflow.
+% ANSI style rendering is reliable from MATLAB R2025a in this workflow.
 persistent cached;
 if ~isempty(cached)
     tf = cached;
@@ -274,8 +274,68 @@ try
     if ~isempty(releaseTag)
         yr = str2double(releaseTag(1:4));
         relHalf = releaseTag(5);
-        tf = (yr > 2023) || (yr == 2023 && relHalf == 'b');
+        tf = (yr > 2025) || (yr == 2025 && relHalf == 'a') || (yr == 2025 && relHalf == 'b');
     end
+catch
+    tf = false;
+end
+cached = tf;
+end
+
+function printStyledLine(lineText, styleName)
+lineText = string(lineText);
+if applyCmdWinStyle(lineText, styleName)
+    return;
+end
+fprintf('%s\n', char(lineText));
+end
+
+function ok = applyCmdWinStyle(lineText, styleName)
+ok = false;
+if ~supportsCmdWinJavaStyling()
+    return;
+end
+
+try
+    cmdWinDoc = com.mathworks.mde.cmdwin.CmdWinDocument.getInstance;
+    if isempty(cmdWinDoc)
+        return;
+    end
+
+    startPos = cmdWinDoc.getLength;
+    fprintf('%s\n', char(lineText));
+    drawnow limitrate;
+    endPos = cmdWinDoc.getLength;
+    if endPos <= startPos
+        return;
+    end
+
+    attrs = javax.swing.text.SimpleAttributeSet;
+    mode = lower(string(styleName));
+    if mode == "bold" || mode == "bluebold"
+        javax.swing.text.StyleConstants.setBold(attrs, true);
+    end
+    if mode == "blue" || mode == "bluebold"
+        javax.swing.text.StyleConstants.setForeground(attrs, java.awt.Color(0, 0, 255));
+    end
+
+    cmdWinDoc.setCharacterAttributes(startPos, endPos - startPos, attrs, false);
+    ok = true;
+catch
+    ok = false;
+end
+end
+
+function tf = supportsCmdWinJavaStyling()
+persistent cached;
+if ~isempty(cached)
+    tf = cached;
+    return;
+end
+
+tf = false;
+try
+    tf = usejava('desktop') && usejava('jvm');
 catch
     tf = false;
 end
