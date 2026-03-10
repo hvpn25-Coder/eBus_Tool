@@ -1581,37 +1581,91 @@ subNo = NaN;
 found = false;
 
 txt = char(rawText);
-baseMatch = regexp(txt, '(?i)\*\*\s*Figure', 'match', 'once');
-if isempty(baseMatch)
+match = regexp(txt, '(?i)(\*\*\s*Figure\s*\[\s*([^\]]+)\s*\](?:\s*\[\s*(\d+)\s*\])?)', 'tokens', 'once');
+if isempty(match)
     return;
 end
 
-token = string(baseMatch);
-idx = regexp(txt, '(?i)\*\*\s*Figure', 'start', 'once');
-tail = txt(idx:min(numel(txt), idx + 80));
-bracketTokens = regexp(tail, '\[\s*(\d+)\s*\]', 'tokens');
-nums = strings(0, 1);
-for i = 1:numel(bracketTokens)
-    if ~isempty(bracketTokens{i})
-        nums(end+1, 1) = string(bracketTokens{i}{1}); %#ok<AGROW>
-    end
+token = string(match{1});
+figRef = string(match{2});
+[figNo, okFig] = resolveFigureReference(figRef, plotConfig);
+if ~okFig
+    return;
 end
 
-allFigs = unique(plotConfig.("Figure No"), 'stable');
-if isempty(nums)
-    if isempty(allFigs)
+if numel(match) >= 3 && strlength(string(match{3})) > 0
+    subNo = str2double(string(match{3}));
+    if isnan(subNo)
         return;
     end
-    figNo = double(allFigs(1));
-else
-    figNo = str2double(nums{1});
-end
-
-if numel(nums) >= 2
-    subNo = str2double(nums{2});
 end
 
 found = true;
+end
+
+function [figNo, ok] = resolveFigureReference(figRef, plotConfig)
+figNo = NaN;
+ok = false;
+
+if ~ismember("Figure No", string(plotConfig.Properties.VariableNames))
+    return;
+end
+
+figRef = strtrim(string(figRef));
+if strlength(figRef) == 0 || ismissing(figRef)
+    return;
+end
+
+numCandidate = str2double(figRef);
+figureNos = unique(double(plotConfig.("Figure No")), 'stable');
+if ~isnan(numCandidate) && any(figureNos == numCandidate)
+    figNo = numCandidate;
+    ok = true;
+    return;
+end
+
+nameCols = getFigureNameColumns(plotConfig);
+if isempty(nameCols)
+    return;
+end
+
+refNorm = normalizeFigureReferenceText(figRef);
+if strlength(refNorm) == 0
+    return;
+end
+
+for iCol = 1:numel(nameCols)
+    colName = nameCols(iCol);
+    colVals = strtrim(string(plotConfig.(colName)));
+    valid = ~ismissing(colVals) & strlength(colVals) > 0;
+    if ~any(valid)
+        continue;
+    end
+    normVals = normalizeFigureReferenceText(colVals(valid));
+    hit = find(normVals == refNorm, 1, 'first');
+    if isempty(hit)
+        continue;
+    end
+    validIdx = find(valid);
+    figNo = double(plotConfig.("Figure No")(validIdx(hit)));
+    ok = true;
+    return;
+end
+end
+
+function nameCols = getFigureNameColumns(plotConfig)
+known = ["Figure Name", "Figure", "Figure Title", "Name"];
+vars = string(plotConfig.Properties.VariableNames);
+nameCols = known(ismember(known, vars));
+nameCols = nameCols(:);
+end
+
+function out = normalizeFigureReferenceText(inText)
+out = lower(strtrim(string(inText)));
+out = regexprep(out, '\s+', ' ');
+out = regexprep(out, '[^a-z0-9_ ]', '');
+out = regexprep(out, '\s+', '_');
+out = regexprep(out, '^_+|_+$', '');
 end
 
 function cacheKey = buildFigureCacheKey(figNo, subNo)
@@ -1878,7 +1932,7 @@ imgMap = containers.Map('KeyType', 'char', 'ValueType', 'char');
 tempAssets = cell(0, 1);
 nTempAssets = 0;
 try
-    requestedKeys = getRequestedFigureKeysFromPpt(pptPath, plotConfig, defaultFig);
+    requestedKeys = getRequestedFigureKeysFromPpt(pptPath, plotConfig);
     if isempty(requestedKeys)
         requestedKeys = getAllFigureKeys(plotConfig);
     end
@@ -1911,6 +1965,14 @@ try
     mapKeys = imgMap.keys;
     for i = 1:numel(mapKeys)
         mapStruct.(mapKeys{i}) = imgMap(mapKeys{i});
+        [figNoAlias, subNoAlias, okAlias] = parseFigureCacheKey(mapKeys{i});
+        if okAlias
+            aliasKeys = getFigureNameCacheKeys(plotConfig, figNoAlias, subNoAlias);
+            for iAlias = 1:numel(aliasKeys)
+                aliasKey = char(aliasKeys(iAlias));
+                mapStruct.(aliasKey) = imgMap(mapKeys{i});
+            end
+        end
     end
 
     mapJsonPath = [tempname '.json'];
@@ -1967,7 +2029,7 @@ cleanupFiles({zipPath});
 cleanupTempDir(workDir);
 end
 
-function requestedKeys = getRequestedFigureKeysFromPpt(pptPath, plotConfig, defaultFig)
+function requestedKeys = getRequestedFigureKeysFromPpt(pptPath, plotConfig)
 requestedKeys = strings(0, 1);
 zipPath = [tempname '.zip'];
 workDir = tempname;
@@ -1989,17 +2051,23 @@ try
         localKeys = strings(numel(starts), 1);
         nLocal = 0;
         for k = 1:numel(starts)
-            figNo = defaultFig;
             subNo = NaN;
             tail = txt(starts(k):min(numel(txt), starts(k) + 120));
             tokenText = regexprep(tail, '<[^>]+>', '');
             tokenText = regexp(tokenText, '^[^\r\n]*', 'match', 'once');
-            bracketTokens = regexp(tokenText, '\[\s*(\d+)\s*\]', 'tokens');
-            if ~isempty(bracketTokens)
-                figNo = str2double(bracketTokens{1}{1});
+            tokenMatch = regexp(tokenText, '(?i)\*\*\s*Figure\s*\[\s*([^\]]+)\s*\](?:\s*\[\s*(\d+)\s*\])?', 'tokens', 'once');
+            if isempty(tokenMatch)
+                continue;
             end
-            if numel(bracketTokens) >= 2
-                subNo = str2double(bracketTokens{2}{1});
+            [figNo, okFig] = resolveFigureReference(string(tokenMatch{1}), plotConfig);
+            if ~okFig
+                continue;
+            end
+            if numel(tokenMatch) >= 2 && strlength(string(tokenMatch{2})) > 0
+                subNo = str2double(string(tokenMatch{2}));
+                if isnan(subNo)
+                    continue;
+                end
             end
             if ~any(figureNos == figNo)
                 continue;
@@ -2066,6 +2134,52 @@ end
 ok = ~isnan(figNo);
 end
 
+function aliasKeys = getFigureNameCacheKeys(plotConfig, figNo, subNo)
+aliasKeys = strings(0, 1);
+if ~ismember("Figure No", string(plotConfig.Properties.VariableNames))
+    return;
+end
+
+nameCols = getFigureNameColumns(plotConfig);
+if isempty(nameCols)
+    return;
+end
+
+rows = plotConfig(double(plotConfig.("Figure No")) == double(figNo), :);
+if isempty(rows)
+    return;
+end
+
+keys = strings(0, 1);
+for iCol = 1:numel(nameCols)
+    colName = nameCols(iCol);
+    names = strtrim(string(rows.(colName)));
+    names = names(~ismissing(names) & strlength(names) > 0);
+    for iName = 1:numel(names)
+        key = buildFigureNameCacheKey(names(iName), subNo);
+        if strlength(key) > 0
+            keys(end+1, 1) = key; %#ok<AGROW>
+        end
+    end
+end
+if ~isempty(keys)
+    aliasKeys = unique(keys, 'stable');
+end
+end
+
+function key = buildFigureNameCacheKey(figName, subNo)
+normName = normalizeFigureReferenceText(figName);
+if strlength(normName) == 0
+    key = "";
+    return;
+end
+if isnan(subNo)
+    key = "N_" + normName;
+else
+    key = string(sprintf('N_%s_S%d', char(normName), double(subNo)));
+end
+end
+
 function scriptText = buildPptFallbackPowerShellScript()
 lines = {
 'param('
@@ -2103,17 +2217,30 @@ lines = {
 '  $txt = Get-ShapeText $shape'
 '  if ([string]::IsNullOrEmpty($txt)) { return }'
 ''
-'  $m = [regex]::Match($txt, ''(?i)\*\*\s*Figure'')'
+'  $m = [regex]::Match($txt, ''(?i)\*\*\s*Figure\s*\[\s*([^\]]+)\s*\](?:\s*\[\s*(\d+)\s*\])?'')'
 '  if (-not $m.Success) { return }'
 ''
-'  $fig = $defaultFig'
+'  $figToken = [string]$m.Groups[1].Value'
 '  $sub = $null'
-'  $tail = $txt.Substring($m.Index, [Math]::Min(80, $txt.Length - $m.Index))'
-'  $nums = [regex]::Matches($tail, ''\[\s*(\d+)\s*\]'')'
-'  if ($nums.Count -ge 1) { $fig = [int]$nums[0].Groups[1].Value }'
-'  if ($nums.Count -ge 2) { $sub = [int]$nums[1].Groups[1].Value }'
+'  if ($m.Groups.Count -ge 3 -and $m.Groups[2].Success) {'
+'    $subVal = 0'
+'    if ([int]::TryParse($m.Groups[2].Value, [ref]$subVal)) { $sub = $subVal } else { return }'
+'  }'
 ''
-'  $key = if ($null -ne $sub) { ''F{0}_S{1}'' -f $fig, $sub } else { ''F{0}'' -f $fig }'
+'  $figVal = 0'
+'  if ([int]::TryParse($figToken.Trim(), [ref]$figVal)) {'
+'    $keyBase = ''F{0}'' -f $figVal'
+'  } else {'
+'    $nameNorm = $figToken.ToLowerInvariant().Trim()'
+'    $nameNorm = [regex]::Replace($nameNorm, ''\s+'', '' '')'
+'    $nameNorm = [regex]::Replace($nameNorm, ''[^a-z0-9_ ]'', '''')'
+'    $nameNorm = [regex]::Replace($nameNorm, ''\s+'', ''_'')'
+'    $nameNorm = [regex]::Replace($nameNorm, ''^_+|_+$'', '''')'
+'    if ([string]::IsNullOrWhiteSpace($nameNorm)) { return }'
+'    $keyBase = ''N_{0}'' -f $nameNorm'
+'  }'
+''
+'  $key = if ($null -ne $sub) { ''{0}_S{1}'' -f $keyBase, $sub } else { $keyBase }'
 ''
 '  $imgPath = Get-MapValue $mapObj $key'
 '  if (($null -ne $imgPath) -and (Test-Path $imgPath)) {'
