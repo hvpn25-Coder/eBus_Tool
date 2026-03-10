@@ -1387,7 +1387,8 @@ end
 
 function contentOut = annotateUnresolvedPlaceholdersInText(contentIn)
 % Add [NA] for any unresolved placeholder token like *veh_weight.
-pattern = '(?<!\w)(\*[A-Za-z][A-Za-z0-9_]*)(?!\s*\[NA\])';
+% Exclude **Figure[...] placeholders from generic KPI placeholder annotation.
+pattern = '(?<![\w\*])(\*(?![Ff]igure\b)[A-Za-z][A-Za-z0-9_]*)(?!\s*\[NA\])';
 contentOut = regexprep(contentIn, pattern, '$1 [NA]');
 end
 
@@ -1410,7 +1411,7 @@ rPrPattern = ['(?:<' prefix ':rPr[^>]*/>\s*|<' prefix ':rPr[^>]*>(?:\s*<[^>]+>\s
 splitPattern = ['(' tOpenPattern ')' '\*' tClosePattern ...
     '\s*</' prefix ':r>\s*<' prefix ':r[^>]*>\s*' ...
     rPrPattern ...
-    tOpenPattern '([A-Za-z][A-Za-z0-9_]*)' tClosePattern];
+    tOpenPattern '((?![Ff]igure\b)[A-Za-z][A-Za-z0-9_]*)' tClosePattern];
 splitReplacement = ['$1*$2 [NA]' tCloseTag];
 contentOut = regexprep(contentOut, splitPattern, splitReplacement);
 end
