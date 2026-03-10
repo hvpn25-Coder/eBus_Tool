@@ -141,7 +141,7 @@ end
 
 updateStatusBox(statusBox, 0.66, 'Generating plots from Plots sheet...');
 figSaveDirs = createPerMatFigureGroupFolders(resultsDir, fileLabels, "Default");
-plotForAllFiles(plotConfig, contextsByFile, fileLabels, colorMap, "", figSaveDirs);
+plotForAllFiles(plotConfig, contextsByFile, fileLabels, colorMap, "", false, figSaveDirs);
 
 groups = string(kpiConfig.("Group"));
 kpis = string(kpiConfig.("KPI"));
@@ -460,7 +460,7 @@ figSaveDirs = strings(numel(data.fileLabels), 1);
 if isfield(data, 'resultsDir') && strlength(string(data.resultsDir)) > 0 && isfolder(data.resultsDir)
     figSaveDirs = createPerMatFigureGroupFolders(data.resultsDir, data.fileLabels, groupName);
 end
-plotForAllFiles(data.plotConfig, data.contextsByFile, data.fileLabels, data.colorMap, groupName, figSaveDirs);
+plotForAllFiles(data.plotConfig, data.contextsByFile, data.fileLabels, data.colorMap, groupName, true, figSaveDirs);
 updateStatusBox(statusBox, 1.00, 'Plot-group rendering complete.');
 closeStatusBox(statusBox);
 printViewMoreLink();
@@ -1365,20 +1365,22 @@ if isempty(key)
     return;
 end
 
-openT = ['<' prefix ':t>'];
-closeT = ['</' prefix ':t>'];
+tOpenPattern = ['<' prefix ':t(?:\s+[^>]*)?>'];
+tClosePattern = ['</' prefix ':t>'];
+tCloseTag = ['</' prefix ':t>'];
 
-boundary = [regexptranslate('escape', closeT) ...
-    '\s*</' prefix ':r>\s*<' prefix ':r[^>]*>\s*(?:<' prefix ':rPr[^>]*/>\s*)?' ...
-    regexptranslate('escape', openT)];
+boundary = [tClosePattern ...
+    '\s*</' prefix ':r>\s*<' prefix ':r[^>]*>\s*' ...
+    '(?:<' prefix ':rPr[^>]*/>\s*|<' prefix ':rPr[^>]*>.*?</' prefix ':rPr>\s*)?' ...
+    tOpenPattern];
 
 tokenPattern = regexptranslate('escape', key(1));
 for i = 2:numel(key)
     tokenPattern = [tokenPattern '(?:' boundary ')?' regexptranslate('escape', key(i))]; %#ok<AGROW>
 end
 
-fullPattern = [regexptranslate('escape', openT) tokenPattern regexptranslate('escape', closeT)];
-replacement = [openT valueXmlSafe closeT];
+fullPattern = ['(' tOpenPattern ')' tokenPattern tClosePattern];
+replacement = ['$1' valueXmlSafe tCloseTag];
 contentOut = regexprep(contentOut, fullPattern, replacement);
 end
 
@@ -1399,14 +1401,15 @@ end
 
 function contentOut = annotateSplitUnresolvedForPrefix(contentIn, prefix)
 contentOut = contentIn;
-openT = ['<' prefix ':t>'];
-closeT = ['</' prefix ':t>'];
+tOpenPattern = ['<' prefix ':t(?:\s+[^>]*)?>'];
+tClosePattern = ['</' prefix ':t>'];
+tCloseTag = ['</' prefix ':t>'];
 
-splitPattern = [regexptranslate('escape', openT) '\*' regexptranslate('escape', closeT) ...
+splitPattern = ['(' tOpenPattern ')' '\*' tClosePattern ...
     '\s*</' prefix ':r>\s*<' prefix ':r[^>]*>\s*' ...
     '(?:<' prefix ':rPr[^>]*/>\s*|<' prefix ':rPr[^>]*>.*?</' prefix ':rPr>\s*)?' ...
-    regexptranslate('escape', openT) '([A-Za-z][A-Za-z0-9_]*)' regexptranslate('escape', closeT)];
-splitReplacement = [openT '*$1 [NA]' closeT];
+    tOpenPattern '([A-Za-z][A-Za-z0-9_]*)' tClosePattern];
+splitReplacement = ['$1*$2 [NA]' tCloseTag];
 contentOut = regexprep(contentOut, splitPattern, splitReplacement);
 end
 
@@ -1685,7 +1688,7 @@ for iSub = 1:numel(targetSubplots)
     hasRightYLabel = false;
 
     for iY = 1:height(yRows)
-        if ~shouldPlotRow(yRows(iY, :))
+        if ~shouldPlotRow(yRows(iY, :), false)
             continue;
         end
 
@@ -2186,7 +2189,7 @@ for i = 1:numel(paths)
 end
 end
 
-function plotForAllFiles(plotConfig, contextsByFile, fileLabels, colorMap, targetGroup, figSaveDir)
+function plotForAllFiles(plotConfig, contextsByFile, fileLabels, colorMap, targetGroup, ignorePrintStatus, figSaveDir)
 if isempty(plotConfig)
     return;
 end
@@ -2195,6 +2198,9 @@ if nargin < 5
     targetGroup = "";
 end
 if nargin < 6
+    ignorePrintStatus = false;
+end
+if nargin < 7
     figSaveDir = "";
 end
 figSaveDirsByFile = normalizePerFilePathList(figSaveDir, numel(contextsByFile));
@@ -2249,7 +2255,7 @@ for iFile = 1:numel(contextsByFile)
             if nSubplots == 0
                 continue;
             end
-            if ~hasPlottableFigureSignals(figRows)
+            if ~hasPlottableFigureSignals(figRows, ignorePrintStatus)
                 continue;
             end
 
@@ -2301,7 +2307,7 @@ for iFile = 1:numel(contextsByFile)
                 hasRightYLabel = false;
 
                 for iY = 1:height(yRows)
-                    if ~shouldPlotRow(yRows(iY, :))
+                    if ~shouldPlotRow(yRows(iY, :), ignorePrintStatus)
                         continue;
                     end
 
@@ -2416,7 +2422,7 @@ end
 plotGroupNames = plotGroupNames(:);
 end
 
-function tf = shouldPlotRow(rowTable)
+function tf = shouldPlotRow(rowTable, ignorePrintStatus)
 tf = false;
 vars = string(rowTable.Properties.VariableNames);
 
@@ -2426,6 +2432,11 @@ if ismember("Axis", vars)
         tf = true;
         return;
     end
+end
+
+if nargin >= 2 && ignorePrintStatus
+    tf = true;
+    return;
 end
 
 if ~ismember("Print", vars)
@@ -2461,7 +2472,7 @@ numVal = str2double(txt);
 tf = ~isnan(numVal) && (numVal == 1);
 end
 
-function tf = hasPlottableFigureSignals(figRows)
+function tf = hasPlottableFigureSignals(figRows, ignorePrintStatus)
 tf = false;
 if isempty(figRows) || ~ismember("Axis", string(figRows.Properties.VariableNames))
     return;
@@ -2474,7 +2485,7 @@ if isempty(yRows)
 end
 
 for iRow = 1:height(yRows)
-    if shouldPlotRow(yRows(iRow, :))
+    if shouldPlotRow(yRows(iRow, :), ignorePrintStatus)
         tf = true;
         return;
     end
