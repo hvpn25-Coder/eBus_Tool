@@ -1265,6 +1265,13 @@ ext = lower(string(ext));
 openXmlExt = [".pptx",".pptm",".docx",".docm",".xlsx",".xlsm"];
 plainTextExt = [".txt",".md",".csv",".json",".xml",".html",".htm"];
 
+if (ext == ".docx" || ext == ".docm" || ext == ".doc") && ispc
+    okWord = replaceTextPlaceholdersInWordViaCom(docPath, placeholderMap);
+    if okWord
+        return;
+    end
+end
+
 if any(ext == openXmlExt)
     replaceInOpenXmlPackage(docPath, placeholderMap);
 elseif any(ext == plainTextExt)
@@ -1277,6 +1284,10 @@ end
 function replaceFigurePlaceholdersInReport(docPath, plotConfig, context, fileLabel, colorMap)
 [~, ~, ext] = fileparts(docPath);
 ext = lower(string(ext));
+if ext == ".docx" || ext == ".docm" || ext == ".doc"
+    replaceFigurePlaceholdersInWord(docPath, plotConfig, context, fileLabel, colorMap);
+    return;
+end
 if ext ~= ".pptx" && ext ~= ".pptm"
     return;
 end
@@ -1434,6 +1445,472 @@ if isfolder(pathStr)
 end
 end
 
+function ok = replaceTextPlaceholdersInWordViaCom(docPath, placeholderMap)
+ok = false;
+if ~ispc
+    return;
+end
+wordApp = [];
+docObj = [];
+try
+    wordApp = actxserver('Word.Application');
+    docObj = wordApp.Documents.Open(docPath, false, false, false);
+    keys = placeholderMap.keys;
+    for i = 1:numel(keys)
+        token = string(keys{i});
+        replacement = string(placeholderMap(keys{i}));
+        replaceWordTokenEverywhere(docObj, token, replacement);
+    end
+    replaceWordShapeTextPlaceholders(docObj, placeholderMap);
+    docObj.Save;
+    ok = true;
+catch
+    ok = false;
+end
+cleanupWordAutomation(wordApp, docObj);
+end
+
+function replaceFigurePlaceholdersInWord(docPath, plotConfig, context, fileLabel, colorMap)
+if ~ispc || isempty(plotConfig)
+    return;
+end
+
+wordApp = [];
+docObj = [];
+imageMap = containers.Map('KeyType', 'char', 'ValueType', 'char');
+try
+    wordApp = actxserver('Word.Application');
+    docObj = wordApp.Documents.Open(docPath, false, false, false);
+    try
+        allText = string(docObj.Content.Text);
+        tokens = getFigurePlaceholderTokensFromText(allText);
+        if ~isempty(tokens)
+            for i = 1:numel(tokens)
+                try
+                    token = string(tokens(i));
+                    [~, figNo, subNo, found] = parseFigurePlaceholder(token, plotConfig);
+                    if ~found
+                        continue;
+                    end
+                    cacheKey = buildFigureCacheKey(figNo, subNo);
+                    if isKey(imageMap, cacheKey)
+                        imgPath = string(imageMap(cacheKey));
+                    else
+                        imgPath = exportFigurePlaceholderImage(plotConfig, context, fileLabel, colorMap, figNo, subNo);
+                        if strlength(imgPath) == 0
+                            continue;
+                        end
+                        cacheImagePath(imageMap, cacheKey, imgPath);
+                    end
+                    replaceWordTokenWithImage(docObj, token, imgPath);
+                catch
+                end
+            end
+        end
+    catch
+    end
+
+    % Also process figure placeholders inside Word Text Boxes (Shape text).
+    try
+        replaceWordShapeFigurePlaceholders(docObj, plotConfig, context, fileLabel, colorMap, imageMap);
+    catch
+    end
+    docObj.Save;
+catch ME
+    warning('Word figure placeholder replacement failed for %s: %s', docPath, ME.message);
+end
+cleanupWordFigureAutomation(wordApp, docObj, imageMap);
+end
+
+function replaceWordTokenEverywhere(docObj, tokenText, replacementText)
+docEnd = docObj.Content.End;
+searchRange = docObj.Range(0, docEnd);
+while true
+    findObj = searchRange.Find;
+    configureWordFind(findObj, tokenText);
+    found = logical(findObj.Execute);
+    if ~found
+        break;
+    end
+    searchRange.Text = char(replacementText);
+    nextStart = searchRange.End;
+    docEnd = docObj.Content.End;
+    if nextStart >= docEnd
+        break;
+    end
+    searchRange = docObj.Range(nextStart, docEnd);
+end
+end
+
+function replaceWordTokenWithImage(docObj, tokenText, imgPath)
+docEnd = docObj.Content.End;
+searchRange = docObj.Range(0, docEnd);
+while true
+    findObj = searchRange.Find;
+    configureWordFind(findObj, tokenText);
+    found = logical(findObj.Execute);
+    if ~found
+        break;
+    end
+
+    try
+        insertRange = searchRange.Duplicate;
+        searchRange.Text = '';
+        insertRange.InlineShapes.AddPicture(char(imgPath));
+    catch
+    end
+
+    nextStart = searchRange.End;
+    docEnd = docObj.Content.End;
+    if nextStart >= docEnd
+        break;
+    end
+    searchRange = docObj.Range(nextStart, docEnd);
+end
+end
+
+function replaceWordShapeFigurePlaceholders(docObj, plotConfig, context, fileLabel, colorMap, imageMap)
+shapeCollections = getWordShapeCollections(docObj);
+for iCollection = 1:numel(shapeCollections)
+    shpCollection = shapeCollections{iCollection};
+    try
+        shapeCount = shpCollection.Count;
+    catch
+        shapeCount = 0;
+    end
+    for iShape = shapeCount:-1:1
+        try
+            shp = shpCollection.Item(iShape);
+            processWordShapeFigurePlaceholder(shp, plotConfig, context, fileLabel, colorMap, imageMap);
+        catch
+        end
+    end
+end
+end
+
+function processWordShapeFigurePlaceholder(shp, plotConfig, context, fileLabel, colorMap, imageMap)
+% Recurse grouped shapes.
+try
+    groupCount = shp.GroupItems.Count;
+catch
+    groupCount = 0;
+end
+if groupCount > 0
+    for iGroup = groupCount:-1:1
+        try
+            processWordShapeFigurePlaceholder(shp.GroupItems.Item(iGroup), plotConfig, context, fileLabel, colorMap, imageMap);
+        catch
+        end
+    end
+    return;
+end
+
+rawText = getWordShapeText(shp);
+if strlength(rawText) == 0
+    return;
+end
+
+tokens = getFigurePlaceholderTokensFromText(rawText);
+if isempty(tokens)
+    return;
+end
+
+% Use first valid figure token found in the shape text.
+figNo = NaN;
+subNo = NaN;
+found = false;
+for iTok = 1:numel(tokens)
+    [~, figNoTry, subNoTry, ok] = parseFigurePlaceholder(tokens(iTok), plotConfig);
+    if ok
+        figNo = figNoTry;
+        subNo = subNoTry;
+        found = true;
+        break;
+    end
+end
+if ~found
+    markWordShapeUnresolved(shp, rawText);
+    return;
+end
+
+cacheKey = buildFigureCacheKey(figNo, subNo);
+if isKey(imageMap, cacheKey)
+    imgPath = string(imageMap(cacheKey));
+else
+    imgPath = exportFigurePlaceholderImage(plotConfig, context, fileLabel, colorMap, figNo, subNo);
+    if strlength(imgPath) == 0
+        markWordShapeUnresolved(shp, rawText);
+        return;
+    end
+    cacheImagePath(imageMap, cacheKey, imgPath);
+end
+
+% Keep the original Text Box/shape in place and fill it with image.
+% This preserves page layout and avoids moving content.
+try
+    placed = tryFillWordShapeWithImage(shp, imgPath);
+catch
+    placed = false;
+end
+if ~placed
+    markWordShapeUnresolved(shp, rawText);
+end
+end
+
+function replaceWordShapeTextPlaceholders(docObj, placeholderMap)
+shapeCollections = getWordShapeCollections(docObj);
+for iCollection = 1:numel(shapeCollections)
+    shpCollection = shapeCollections{iCollection};
+    try
+        shapeCount = shpCollection.Count;
+    catch
+        shapeCount = 0;
+    end
+    for iShape = shapeCount:-1:1
+        try
+            shp = shpCollection.Item(iShape);
+            processWordShapeTextPlaceholder(shp, placeholderMap);
+        catch
+        end
+    end
+end
+end
+
+function processWordShapeTextPlaceholder(shp, placeholderMap)
+% Recurse grouped shapes.
+try
+    groupCount = shp.GroupItems.Count;
+catch
+    groupCount = 0;
+end
+if groupCount > 0
+    for iGroup = groupCount:-1:1
+        try
+            processWordShapeTextPlaceholder(shp.GroupItems.Item(iGroup), placeholderMap);
+        catch
+        end
+    end
+    return;
+end
+
+rawText = getWordShapeText(shp);
+if strlength(rawText) == 0
+    return;
+end
+
+updatedText = rawText;
+keys = placeholderMap.keys;
+for i = 1:numel(keys)
+    token = string(keys{i});
+    value = string(placeholderMap(keys{i}));
+    updatedText = strrep(updatedText, token, value);
+end
+
+if strcmp(char(updatedText), char(rawText))
+    return;
+end
+setWordShapeText(shp, updatedText);
+end
+
+function shapeCollections = getWordShapeCollections(docObj)
+shapeCollections = {};
+try
+    shapeCollections{end + 1} = docObj.Shapes;
+catch
+end
+
+try
+    sectionCount = docObj.Sections.Count;
+catch
+    sectionCount = 0;
+end
+for iSection = 1:sectionCount
+    try
+        secObj = docObj.Sections.Item(iSection);
+    catch
+        continue;
+    end
+
+    try
+        headerCount = secObj.Headers.Count;
+    catch
+        headerCount = 0;
+    end
+    for iHeader = 1:headerCount
+        try
+            shapeCollections{end + 1} = secObj.Headers.Item(iHeader).Shapes; %#ok<AGROW>
+        catch
+        end
+    end
+
+    try
+        footerCount = secObj.Footers.Count;
+    catch
+        footerCount = 0;
+    end
+    for iFooter = 1:footerCount
+        try
+            shapeCollections{end + 1} = secObj.Footers.Item(iFooter).Shapes; %#ok<AGROW>
+        catch
+        end
+    end
+end
+end
+
+function txt = getWordShapeText(shp)
+txt = "";
+% Modern Word text boxes expose content through TextFrame2.
+try
+    hasTextFrame2 = logical(shp.TextFrame2.HasText);
+catch
+    hasTextFrame2 = false;
+end
+if hasTextFrame2
+    try
+        txt2 = string(shp.TextFrame2.TextRange.Text);
+        if strlength(strtrim(erase(txt2, char(13)))) > 0
+            txt = txt2;
+            return;
+        end
+    catch
+    end
+end
+
+% Fallback for legacy shapes.
+try
+    hasTextFrame = logical(shp.TextFrame.HasText);
+catch
+    hasTextFrame = false;
+end
+if ~hasTextFrame
+    return;
+end
+
+try
+    txt = string(shp.TextFrame.TextRange.Text);
+    % Some textbox variants expose "oTextBox" here; treat as non-content.
+    if strcmpi(strtrim(char(txt)), 'oTextBox')
+        txt = "";
+    end
+catch
+    txt = "";
+end
+end
+
+function setWordShapeText(shp, txt)
+value = char(string(txt));
+try
+    shp.TextFrame.TextRange.Text = value;
+    return;
+catch
+end
+try
+    shp.TextFrame2.TextRange.Text = value;
+catch
+end
+end
+
+function ok = tryFillWordShapeWithImage(shp, imgPath)
+ok = false;
+if ~isfile(imgPath)
+    return;
+end
+try
+    shp.Fill.UserPicture(char(imgPath));
+catch
+    return;
+end
+setWordShapeText(shp, "");
+ok = true;
+end
+
+function markWordShapeUnresolved(shp, rawText)
+if contains(rawText, "[NA]")
+    return;
+end
+setWordShapeText(shp, rawText + " [NA]");
+end
+
+function configureWordFind(findObj, tokenText)
+try
+    findObj.ClearFormatting;
+catch
+end
+try
+    findObj.Replacement.ClearFormatting;
+catch
+end
+findObj.Text = char(string(tokenText));
+findObj.Forward = true;
+findObj.Wrap = 0; % wdFindStop
+findObj.Format = false;
+findObj.MatchCase = false;
+findObj.MatchWholeWord = false;
+findObj.MatchWildcards = false;
+findObj.MatchSoundsLike = false;
+findObj.MatchAllWordForms = false;
+end
+
+function tokens = getFigurePlaceholderTokensFromText(rawText)
+txt = normalizeWordPlaceholderText(rawText);
+matches = regexp(txt, '(?i)\*\*\s*Figure\s*\[\s*[^\]\r\n]+\s*\](?:\s*\[\s*\d+\s*\])?', 'match');
+if isempty(matches)
+    tokens = strings(0, 1);
+    return;
+end
+tokens = unique(string(matches), 'stable');
+tokens = tokens(:);
+end
+
+function out = normalizeWordPlaceholderText(rawText)
+txt = char(string(rawText));
+txt = strrep(txt, char(160), ' ');
+txt = strrep(txt, char(8203), '');
+txt = strrep(txt, char(8204), '');
+txt = strrep(txt, char(8205), '');
+txt = regexprep(txt, '[\x00-\x08\x0B\x0C\x0E-\x1F]', '');
+out = string(txt);
+end
+
+function cleanupWordAutomation(wordApp, docObj)
+try
+    if ~isempty(docObj)
+        try
+            docObj.Close(false);
+        catch
+        end
+    end
+catch
+end
+try
+    if ~isempty(wordApp)
+        try
+            wordApp.Quit;
+        catch
+        end
+        try
+            delete(wordApp);
+        catch
+        end
+    end
+catch
+end
+end
+
+function cleanupWordFigureAutomation(wordApp, docObj, imageMap)
+try
+    keys = imageMap.keys;
+    for i = 1:numel(keys)
+        p = imageMap(keys{i});
+        if isfile(p)
+            delete(p);
+        end
+    end
+catch
+end
+cleanupWordAutomation(wordApp, docObj);
+end
+
 function replaceFigurePlaceholdersInPpt(pptPath, plotConfig, context, fileLabel, colorMap)
 if ~ispc
     return;
@@ -1581,21 +2058,27 @@ figNo = NaN;
 subNo = NaN;
 found = false;
 
-txt = char(rawText);
-match = regexp(txt, '(?i)(\*\*\s*Figure\s*\[\s*([^\]]+)\s*\](?:\s*\[\s*(\d+)\s*\])?)', 'tokens', 'once');
-if isempty(match)
+txt = char(normalizeWordPlaceholderText(rawText));
+tokenMatch = regexp(txt, '(?i)\*\*\s*Figure\s*\[\s*[^\]]+\s*\](?:\s*\[\s*\d+\s*\])?', 'match', 'once');
+if isempty(tokenMatch)
+    return;
+end
+token = string(tokenMatch);
+
+figRefParts = regexp(tokenMatch, '(?i)^\s*\*\*\s*Figure\s*\[\s*([^\]]+)\s*\]', 'tokens', 'once');
+if isempty(figRefParts)
     return;
 end
 
-token = string(match{1});
-figRef = string(match{2});
+figRef = string(figRefParts{1});
 [figNo, okFig] = resolveFigureReference(figRef, plotConfig);
 if ~okFig
     return;
 end
 
-if numel(match) >= 3 && strlength(string(match{3})) > 0
-    subNo = str2double(string(match{3}));
+subParts = regexp(tokenMatch, '\]\s*\[\s*(\d+)\s*\]\s*$', 'tokens', 'once');
+if ~isempty(subParts)
+    subNo = str2double(string(subParts{1}));
     if isnan(subNo)
         return;
     end
@@ -2056,16 +2539,21 @@ try
             tail = txt(starts(k):min(numel(txt), starts(k) + 120));
             tokenText = regexprep(tail, '<[^>]+>', '');
             tokenText = regexp(tokenText, '^[^\r\n]*', 'match', 'once');
-            tokenMatch = regexp(tokenText, '(?i)\*\*\s*Figure\s*\[\s*([^\]]+)\s*\](?:\s*\[\s*(\d+)\s*\])?', 'tokens', 'once');
+            tokenMatch = regexp(tokenText, '(?i)\*\*\s*Figure\s*\[\s*[^\]]+\s*\](?:\s*\[\s*\d+\s*\])?', 'match', 'once');
             if isempty(tokenMatch)
                 continue;
             end
-            [figNo, okFig] = resolveFigureReference(string(tokenMatch{1}), plotConfig);
+            figRefParts = regexp(tokenMatch, '(?i)^\s*\*\*\s*Figure\s*\[\s*([^\]]+)\s*\]', 'tokens', 'once');
+            if isempty(figRefParts)
+                continue;
+            end
+            [figNo, okFig] = resolveFigureReference(string(figRefParts{1}), plotConfig);
             if ~okFig
                 continue;
             end
-            if numel(tokenMatch) >= 2 && strlength(string(tokenMatch{2})) > 0
-                subNo = str2double(string(tokenMatch{2}));
+            subParts = regexp(tokenMatch, '\]\s*\[\s*(\d+)\s*\]\s*$', 'tokens', 'once');
+            if ~isempty(subParts)
+                subNo = str2double(string(subParts{1}));
                 if isnan(subNo)
                     continue;
                 end
