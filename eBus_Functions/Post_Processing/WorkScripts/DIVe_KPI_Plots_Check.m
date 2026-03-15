@@ -540,15 +540,16 @@ end
 if nargin < 3
     toUpper = true;
 end
-
-nRows = min(5, nGroups);
-nCols = ceil(nGroups / nRows);
 if toUpper
     displayNames = upper(names);
 else
     displayNames = names;
 end
-plainNames = displayNames;
+
+bulletChar = char(9679);
+nRows = min(5, nGroups);
+nCols = ceil(nGroups / nRows);
+plainNames = bulletChar + " " + displayNames;
 cellWidth = max(strlength(plainNames), [], 'omitnan') + 6;
 
 for iRow = 1:nRows
@@ -561,8 +562,8 @@ for iRow = 1:nRows
         grp = names(idx);
         grpText = displayNames(idx);
         cmd = sprintf('matlab:feval(%s,''%s'')', callbackFcnVarName, escapeForMatlabCharLiteral(grp));
-        linkText = "<a href=""" + string(cmd) + """>" + grpText + "</a>";
-        padCount = max(0, cellWidth - strlength(grpText));
+        linkText = string(bulletChar) + " <a href=""" + string(cmd) + """>" + grpText + "</a>";
+        padCount = max(0, cellWidth - strlength(plainNames(idx)));
         rowLine = rowLine + linkText + string(repmat(' ', 1, padCount));
     end
     fprintf('%s\n', rowLine);
@@ -1223,18 +1224,18 @@ function outPath = buildReportOutputPath(targetDir, templateName, fileLabel)
 [~, baseName, ext] = fileparts(char(templateName));
 safeReportName = regexprep(baseName, '[^\w\- ]', '_');
 safeMatName = regexprep(char(string(fileLabel)), '[^\w\- ]', '_');
-datePrefix = char(datetime('now', 'Format', 'yyyyMMdd'));
+timeStampPrefix = char(datetime('now', 'Format', 'yyyyMMdd_HHmmss'));
 
-% Naming convention: <YYYYMMDD>_<matfilename>_<SelectedReportName>
-candidate = fullfile(targetDir, [datePrefix '_' safeMatName '_' safeReportName ext]);
+% Naming convention: <YYYYMMDD_HHMMSS>_<matfilename>_<SelectedReportName>
+candidate = fullfile(targetDir, [timeStampPrefix '_' safeMatName '_' safeReportName ext]);
 
 if ~isfile(candidate)
     outPath = candidate;
     return;
 end
 
-suffix = char(datetime('now', 'Format', 'yyyyMMdd_HHmmssSSS'));
-outPath = fullfile(targetDir, [datePrefix '_' safeMatName '_' safeReportName '_' suffix ext]);
+suffix = char(datetime('now', 'Format', 'HHmmssSSS'));
+outPath = fullfile(targetDir, [timeStampPrefix '_' safeMatName '_' safeReportName '_' suffix ext]);
 end
 
 function placeholderMap = buildPlaceholderMapForFile(variableNames, fileValues)
