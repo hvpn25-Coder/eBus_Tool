@@ -30,10 +30,7 @@ if ~isempty(missing)
 end
 
 if localIsFolderOnPath(repoRoot)
-    try
-        rmpath(repoRoot);
-    catch
-    end
+    localTryRemovePath(repoRoot);
 end
 addpath(repoRoot);
 rehash;
@@ -43,31 +40,20 @@ fprintf('Startup: Quick Access item "%s" is configured.\n', entryLabel);
 end
 
 function localEnableLegacyFavorite(repoRoot, entryLabel)
-favoriteCode = 'openEbusTool;';
+favoriteCode = localBuildFavoriteCode(repoRoot);
 favoriteIconName = 'favorite_command_E';
 
 try
     fc = com.mathworks.mlwidgets.favoritecommands.FavoriteCommands.getInstance();
-
-    if localLegacyFavoriteExists(fc, entryLabel, favoriteCode)
-        fprintf('Startup: Favorite "%s" already configured.\n', entryLabel);
-        return;
-    end
+    localRemoveLegacyFavorite(fc, entryLabel);
 
     newFavorite = com.mathworks.mlwidgets.favoritecommands.FavoriteCommandProperties();
     newFavorite.setLabel(entryLabel);
     % Keep default category for better compatibility with MATLAB R2023b/R2024x.
     newFavorite.setCode(favoriteCode);
     newFavorite.setIsOnQuickToolBar(true);
-
-    try
-        newFavorite.setIsShowingLabelOnToolBar(true);
-    catch
-    end
-    try
-        newFavorite.setIconName(favoriteIconName);
-    catch
-    end
+    localTryShowFavoriteLabelOnToolbar(newFavorite);
+    localTrySetFavoriteIcon(newFavorite, favoriteIconName);
 
     if ~localIsFolderOnPath(repoRoot)
         addpath(repoRoot);
@@ -98,8 +84,16 @@ parts = strsplit(path, pathsep);
 tf = any(strcmpi(parts, folderPath));
 end
 
-function tf = localLegacyFavoriteExists(fc, expectedLabel, expectedCode)
-tf = false;
+function favoriteCode = localBuildFavoriteCode(repoRoot)
+escapedRepoRoot = strrep(repoRoot, '''', '''''');
+favoriteCode = sprintf( ...
+    ['repoRoot=''%s''; pathParts=regexp(path,pathsep,''split''); ' ...
+     'if exist(repoRoot,''dir'') && ~any(strcmpi(pathParts,repoRoot)), addpath(repoRoot); end; ' ...
+     'rehash; feval(str2func(''openEbusTool''));'], ...
+    escapedRepoRoot);
+end
+
+function localRemoveLegacyFavorite(fc, expectedLabel)
 categories = localGetFavoriteCategories(fc);
 
 if isempty(categories)
@@ -117,21 +111,12 @@ for iCat = 0:categories.size()-1
     for iChild = 0:children.size()-1
         child = children.get(iChild);
         labelMatches = strcmp(string(child.getLabel()), string(expectedLabel));
-        codeMatches = strcmp(strtrim(string(child.getCode())), strtrim(string(expectedCode)));
-        if ~(labelMatches && codeMatches)
+        if ~labelMatches
             continue;
         end
 
-        try
-            child.setIsOnQuickToolBar(true);
-        catch
-        end
-        try
-            child.setIconName('favorite_command_E');
-        catch
-        end
-        tf = true;
-        return;
+        categoryName = localGetCategoryLabel(category);
+        localTryRemoveFavorite(fc, expectedLabel, categoryName);
     end
 end
 end
@@ -144,5 +129,50 @@ try
     categories = method.invoke(fc, javaArray('java.lang.Object', 0));
 catch
     categories = [];
+end
+end
+
+function localTryRemovePath(folderPath)
+try
+    rmpath(folderPath);
+catch
+    % Ignore path removal failures and continue with addpath.
+end
+end
+
+function localTryShowFavoriteLabelOnToolbar(favoriteObject)
+try
+    favoriteObject.setIsShowingLabelOnToolBar(true);
+catch
+    % This property is not available in all MATLAB releases.
+end
+end
+
+function localTrySetFavoriteIcon(favoriteObject, iconName)
+try
+    favoriteObject.setIconName(iconName);
+catch
+    % Icon APIs differ across MATLAB releases.
+end
+end
+
+function categoryName = localGetCategoryLabel(category)
+categoryName = 'Favorite Commands';
+try
+    categoryName = char(string(category.getLabel()));
+catch
+    % Fall back to the default category label.
+end
+end
+
+function localTryRemoveFavorite(fc, favoriteLabel, categoryName)
+try
+    fc.removeCommand(char(favoriteLabel), char(categoryName));
+catch
+    try
+        fc.removeCommand(char(favoriteLabel), 'Favorite Commands');
+    catch
+        % Ignore removal failures and let addCommand handle duplicates.
+    end
 end
 end
