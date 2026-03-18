@@ -19,7 +19,7 @@ topBottomSep = repmat('=', 1, bannerWidth);
 midSep = repmat('-', 1, bannerWidth);
 
 fprintf('%s\n', topBottomSep);
-localPrintCentered('Welcome to the eBT Tool', bannerWidth);
+localPrintCentered(localMakeBoldText('Welcome to the eBT Tool'), bannerWidth);
 localPrintCentered('Your companion for DIVe Simulation exploration, validation and visualization', bannerWidth);
 fprintf('%s\n', midSep);
 localPrintCentered('Click the tool below to continue...', bannerWidth);
@@ -37,6 +37,7 @@ localPrintScriptLink( ...
     'matlab:Batch_DIVe_Sim_Processing', ...
     'Check KPI''s, Plots and Generate reports for a batch of simulations. Do Comparative Analysis.');
 fprintf('\n');
+localPrintThankYouBanner(bannerWidth);
 end
 
 function localPrintScriptLink(label, scriptPath, hrefCmd, descriptionText)
@@ -60,4 +61,32 @@ end
 function tf = localIsFolderOnPath(folderPath)
 pathParts = strsplit(path, pathsep);
 tf = any(strcmpi(pathParts, folderPath));
+end
+
+function localPrintThankYouBanner(bannerWidth)
+sep = repmat('=', 1, bannerWidth);
+message = 'Thank You';
+fprintf('%s\n', sep);
+localPrintCentered(localMakeBoldText(message), bannerWidth);
+fprintf('%s\n', sep);
+end
+
+function out = localMakeBoldText(inText)
+out = char(string(inText));
+if ~localSupportsAnsiStyles()
+    return;
+end
+esc = char(27);
+out = sprintf('%s[1m%s%s[0m', esc, out, esc);
+end
+
+function tf = localSupportsAnsiStyles()
+tf = false;
+releaseTag = regexp(version('-release'), '\d{4}[ab]', 'match', 'once');
+if isempty(releaseTag)
+    return;
+end
+yearNum = str2double(releaseTag(1:4));
+halfTag = lower(releaseTag(5));
+tf = (yearNum > 2025) || (yearNum == 2025 && (halfTag == 'a' || halfTag == 'b'));
 end
