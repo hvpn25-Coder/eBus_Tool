@@ -23,7 +23,7 @@ updateStatusBox(statusBox, 0.05, 'Reading KPI/plot configuration...');
 
 thisScriptDir = fileparts(mfilename('fullpath'));
 kpiBankPath = fullfile(thisScriptDir, '..', 'KPIs_Plots', 'eBus_KPIs_Plots_Bank.xlsx');
-templateDir = fullfile(thisScriptDir, '..', 'Sim_Doc_Templates');
+templateDir = fullfile(thisScriptDir, '..', 'Report_Templates');
 
 if ~isfile(kpiBankPath)
     error('KPI bank not found at: %s', kpiBankPath);
@@ -79,11 +79,13 @@ end
 columnNames = cellstr(fileLabels);
 columnNames = matlab.lang.makeValidName(columnNames);
 columnNames = matlab.lang.makeUniqueStrings(columnNames, {'KPI'});
+printProcessedMatFileInfo(selectedPath, selectedFiles, fileLabels);
 
 updateStatusBox(statusBox, 0.11, 'Creating results folder...');
 resultsDir = createDiveResultsFolder(selectedPath);
 [~, resultsFolderName] = fileparts(resultsDir);
 kpiResultFileName = [resultsFolderName '.xlsx'];
+ensurePerMatOutputFolders(resultsDir, fileLabels);
 
 for iFile = 1:numFiles
     updateStatusBox(statusBox, 0.12 + 0.50 * (iFile - 1) / max(1, numFiles), ...
@@ -138,8 +140,8 @@ for iFile = 1:numFiles
 end
 
 updateStatusBox(statusBox, 0.66, 'Generating plots from Plots sheet...');
-figSaveDir = createFigureOutputFolder(resultsDir);
-plotForAllFiles(plotConfig, contextsByFile, fileLabels, colorMap, "", false, figSaveDir);
+figSaveDirs = createPerMatFigureGroupFolders(resultsDir, fileLabels, "Default");
+plotForAllFiles(plotConfig, contextsByFile, fileLabels, colorMap, "", false, figSaveDirs);
 
 groups = string(kpiConfig.("Group"));
 kpis = string(kpiConfig.("KPI"));
@@ -195,7 +197,7 @@ end
 
 assignin('base', 'groupTables', groupTables);
 registerViewMoreLinks(groups, kpis, units, srNos, resultMatrix, resultValueMatrix, columnNames, orderedGroups, firstColHeaders, ...
-    plotConfig, contextsByFile, fileLabels, colorMap, templateDir, selectedPath, variableNames, resultsDir, kpiResultFileName);
+    plotConfig, contextsByFile, fileLabels, colorMap, templateDir, selectedPath, variableNames, resultsDir, kpiResultFileName, kpiBankPath);
 updateStatusBox(statusBox, 1.00, 'Execution complete.');
 printReportFolderLink(resultsDir);
 printViewMoreLink();
@@ -204,21 +206,30 @@ closeStatusBox(statusBox);
 function printGroupHeader(groupName, totalWidth)
 sep = repmat('=', 1, totalWidth);
 plainGroupText = upper(string(groupName));
-groupText = makeBlueBoldText(plainGroupText);
-sepText = makeBlueText(sep);
 padLeft = max(0, floor((totalWidth - strlength(plainGroupText)) / 2));
+groupLine = string(repmat(' ', 1, padLeft)) + plainGroupText;
+sepText = makeBlueBoldText(sep);
+groupText = makeBlueBoldText(groupLine);
 
 fprintf('\n%s\n', sepText);
-fprintf('%s%s\n', repmat(' ', 1, padLeft), groupText);
+fprintf('%s\n', groupText);
 fprintf('%s\n', sepText);
+end
+
+function printProcessedMatFileInfo(selectedPath, selectedFiles, fileLabels)
+nFiles = numel(selectedFiles);
+fprintf('\nMAT files being processed (%d):\n', nFiles);
+for iFile = 1:nFiles
+    matName = string(fileLabels(iFile));
+    matPath = fullfile(char(string(selectedPath)), char(string(selectedFiles{iFile})));
+    fprintf('  %d) %s\n', iFile, char(matName));
+    fprintf('     %s\n', matPath);
+end
+fprintf('\n');
 end
 
 function out = makeBoldText(inText)
 out = styleText(inText, 'bold');
-end
-
-function out = makeBlueText(inText)
-out = styleText(inText, 'blue');
 end
 
 function out = makeBlueBoldText(inText)
@@ -248,20 +259,20 @@ out = string([esc '[' char(code) 'm']) + inText + string([esc '[0m']);
 end
 
 function tf = supportsAnsiStyles()
-% Keep styling compatible with MATLAB R2023b+.
+% ANSI style rendering is reliable from MATLAB R2025a in this workflow.
 persistent cached;
 if ~isempty(cached)
     tf = cached;
     return;
 end
 
-tf = false;
 try
     releaseTag = regexp(version('-release'), '\d{4}[ab]', 'match', 'once');
+    tf = false;
     if ~isempty(releaseTag)
         yr = str2double(releaseTag(1:4));
         relHalf = releaseTag(5);
-        tf = (yr > 2023) || (yr == 2023 && relHalf == 'b');
+        tf = (yr > 2025) || (yr == 2025 && relHalf == 'a') || (yr == 2025 && relHalf == 'b');
     end
 catch
     tf = false;
@@ -334,7 +345,7 @@ out = inText + string(repmat(' ', 1, padCount));
 end
 
 function registerViewMoreLinks(groups, kpis, units, srNos, resultMatrix, resultValueMatrix, columnNames, orderedGroups, firstColHeaders, ...
-    plotConfig, contextsByFile, fileLabels, colorMap, templateDir, selectedPath, variableNames, resultsDir, kpiResultFileName)
+    plotConfig, contextsByFile, fileLabels, colorMap, templateDir, selectedPath, variableNames, resultsDir, kpiResultFileName, kpiBankPath)
 data = struct();
 data.groups = groups;
 data.kpis = kpis;
@@ -356,6 +367,7 @@ data.templateDir = templateDir;
 data.selectedPath = selectedPath;
 data.resultsDir = resultsDir;
 data.kpiResultFileName = kpiResultFileName;
+data.kpiBankPath = kpiBankPath;
 [data.templateNames, data.templatePaths] = getTemplateDocuments(templateDir);
 
 assignin('base', 'kpiPlotsInteractiveData', data);
@@ -376,8 +388,24 @@ fprintf('\nKPI Groups:\n');
 printHyperlinkGrid(data.orderedGroups, "openKpiGroupDetails", true);
 fprintf('\nPlots Groups:\n');
 printHyperlinkGrid(data.plotGroupNames, "openPlotGroupDetails", true);
+if isfield(data, 'kpiBankPath') && strlength(string(data.kpiBankPath)) > 0 && isfile(data.kpiBankPath)
+    bankPath = char(string(data.kpiBankPath));
+    bankCmd = sprintf('matlab:winopen(''%s'')', escapeForMatlabCharLiteral(bankPath));
+    fprintf('\nTo Add/Edit the KPI and Plot Bank excel <a href="%s">[eBus_KPIs_Plots_Bank.xlsx]</a>\n', bankCmd);
+end
 fprintf('\nGenerate Report:\n');
 printHyperlinkGrid(data.templateNames, "openGenerateReportTemplate", false);
+if isfield(data, 'templateDir') && strlength(string(data.templateDir)) > 0
+    templateBaseDir = char(string(data.templateDir));
+    simDocPath = fullfile(fileparts(templateBaseDir), 'Sim_Doc_Templates');
+    if ~isfolder(simDocPath)
+        simDocPath = templateBaseDir;
+    end
+    if isfolder(simDocPath)
+        templateCmd = sprintf('matlab:winopen(''%s'')', escapeForMatlabCharLiteral(simDocPath));
+        fprintf('\nTo Add/Edit the Report Template <a href="%s">[Report_Templates]</a>\n', templateCmd);
+    end
+end
 fprintf('\n');
 end
 
@@ -428,11 +456,11 @@ if ~any(data.plotGroupNames == groupName)
 end
 
 updateStatusBox(statusBox, 0.45, sprintf('Plotting group: %s', groupName));
-figSaveDir = "";
+figSaveDirs = strings(numel(data.fileLabels), 1);
 if isfield(data, 'resultsDir') && strlength(string(data.resultsDir)) > 0 && isfolder(data.resultsDir)
-    figSaveDir = createFigureOutputFolder(data.resultsDir);
+    figSaveDirs = createPerMatFigureGroupFolders(data.resultsDir, data.fileLabels, groupName);
 end
-plotForAllFiles(data.plotConfig, data.contextsByFile, data.fileLabels, data.colorMap, groupName, true, figSaveDir);
+plotForAllFiles(data.plotConfig, data.contextsByFile, data.fileLabels, data.colorMap, groupName, true, figSaveDirs);
 updateStatusBox(statusBox, 1.00, 'Plot-group rendering complete.');
 closeStatusBox(statusBox);
 printViewMoreLink();
@@ -469,6 +497,7 @@ if ~isfield(data, 'resultsDir') || strlength(string(data.resultsDir)) == 0 || ~i
     assignin('base', 'kpiPlotsInteractiveData', data);
 end
 resultsDir = data.resultsDir;
+reportDirs = createPerMatReportFolders(resultsDir, data.fileLabels);
 
 updateStatusBox(statusBox, 0.20, sprintf('Generating from template: %s', templateName));
 updateStatusBox(statusBox, 0.22, sprintf('Saving reports to: %s', resultsDir));
@@ -476,7 +505,7 @@ updateStatusBox(statusBox, 0.22, sprintf('Saving reports to: %s', resultsDir));
 for iFile = 1:numFiles
     updateStatusBox(statusBox, 0.20 + 0.70 * (iFile - 1) / max(1, numFiles), ...
         sprintf('Creating report %d/%d...', iFile, numFiles));
-    outputPath = buildReportOutputPath(resultsDir, templateName, data.fileLabels(iFile));
+    outputPath = buildReportOutputPath(reportDirs{iFile}, templateName, data.fileLabels(iFile));
     copyfile(templatePath, outputPath, 'f');
 
     placeholderMap = buildPlaceholderMapForFile(data.variableNames, data.resultMatrix(:, iFile));
@@ -511,15 +540,16 @@ end
 if nargin < 3
     toUpper = true;
 end
-
-nRows = min(5, nGroups);
-nCols = ceil(nGroups / nRows);
 if toUpper
     displayNames = upper(names);
 else
     displayNames = names;
 end
-plainNames = displayNames;
+
+bulletChar = char(9679);
+nRows = min(5, nGroups);
+nCols = ceil(nGroups / nRows);
+plainNames = bulletChar + " " + displayNames;
 cellWidth = max(strlength(plainNames), [], 'omitnan') + 6;
 
 for iRow = 1:nRows
@@ -532,8 +562,8 @@ for iRow = 1:nRows
         grp = names(idx);
         grpText = displayNames(idx);
         cmd = sprintf('matlab:feval(%s,''%s'')', callbackFcnVarName, escapeForMatlabCharLiteral(grp));
-        linkText = "<a href=""" + string(cmd) + """>" + grpText + "</a>";
-        padCount = max(0, cellWidth - strlength(grpText));
+        linkText = string(bulletChar) + " <a href=""" + string(cmd) + """>" + grpText + "</a>";
+        padCount = max(0, cellWidth - strlength(plainNames(idx)));
         rowLine = rowLine + linkText + string(repmat(' ', 1, padCount));
     end
     fprintf('%s\n', rowLine);
@@ -541,7 +571,11 @@ end
 end
 
 function printViewMoreLink()
+visibleLine = "To View more KPI's, Plots, Deep Analysis or Generate Report [view more...]";
+separator = repmat('=', 1, strlength(visibleLine));
+fprintf('%s\n', separator);
 fprintf('To View more KPI''s, Plots, Deep Analysis or Generate Report <a href="matlab:feval(openKpiPlotsViewMore)">[view more...]</a>\n');
+fprintf('%s\n', separator);
 end
 
 function printReportFolderLink(resultsDir)
@@ -550,6 +584,7 @@ if nargin < 1 || strlength(string(resultsDir)) == 0 || ~isfolder(resultsDir)
 end
 [~, reportFolderName] = fileparts(char(string(resultsDir)));
 folderCmd = sprintf('matlab:winopen(''%s'')', escapeForMatlabCharLiteral(resultsDir));
+fprintf('\n');
 fprintf('Report Folder: <a href="%s">%s</a>\n', folderCmd, reportFolderName);
 fprintf('\n');
 end
@@ -687,27 +722,114 @@ end
 mkdir(outDir);
 end
 
-function figDir = createFigureOutputFolder(resultsDir)
+function figDir = createFigureOutputFolder(resultsDir, folderLabel)
 figDir = "";
 if strlength(string(resultsDir)) == 0 || ~isfolder(resultsDir)
     return;
 end
 
-timeStamp = char(datetime('now', 'Format', 'yyyyMMdd_HHmmss'));
-folderName = [timeStamp '_Fig'];
+if nargin < 2 || strlength(strtrim(string(folderLabel))) == 0
+    folderLabel = "Default";
+end
+
+safeLabel = string(sanitizeFileName(folderLabel));
+folderName = char(safeLabel + "_Fig");
 figDir = fullfile(char(string(resultsDir)), folderName);
 
 if ~isfolder(figDir)
     mkdir(figDir);
+end
+end
+
+function [matDirs, figBaseDirs, reportBaseDirs] = ensurePerMatOutputFolders(resultsDir, fileLabels)
+nFiles = numel(fileLabels);
+matDirs = repmat({''}, nFiles, 1);
+figBaseDirs = repmat({''}, nFiles, 1);
+reportBaseDirs = repmat({''}, nFiles, 1);
+if strlength(string(resultsDir)) == 0 || ~isfolder(resultsDir)
     return;
 end
 
-suffix = 1;
-while isfolder(figDir)
-    figDir = fullfile(char(string(resultsDir)), sprintf('%s_%02d', folderName, suffix));
-    suffix = suffix + 1;
+safeLabels = strings(nFiles, 1);
+for iFile = 1:nFiles
+    safeLabels(iFile) = string(sanitizeFileName(fileLabels(iFile)));
+    if strlength(strtrim(safeLabels(iFile))) == 0
+        safeLabels(iFile) = sprintf('MatFile_%02d', iFile);
+    end
 end
-mkdir(figDir);
+safeLabels = string(matlab.lang.makeUniqueStrings(cellstr(safeLabels)));
+
+for iFile = 1:nFiles
+    matDir = fullfile(char(string(resultsDir)), char(safeLabels(iFile)));
+    if ~isfolder(matDir)
+        mkdir(matDir);
+    end
+    figDir = fullfile(matDir, 'Fig');
+    if ~isfolder(figDir)
+        mkdir(figDir);
+    end
+    reportDir = fullfile(matDir, 'Report');
+    if ~isfolder(reportDir)
+        mkdir(reportDir);
+    end
+    matDirs{iFile} = matDir;
+    figBaseDirs{iFile} = figDir;
+    reportBaseDirs{iFile} = reportDir;
+end
+end
+
+function figSaveDirs = createPerMatFigureGroupFolders(resultsDir, fileLabels, groupLabel)
+[~, figBaseDirs, ~] = ensurePerMatOutputFolders(resultsDir, fileLabels);
+nFiles = numel(figBaseDirs);
+figSaveDirs = repmat({''}, nFiles, 1);
+for iFile = 1:nFiles
+    baseDir = string(figBaseDirs{iFile});
+    if strlength(baseDir) == 0 || ~isfolder(char(baseDir))
+        continue;
+    end
+    figSaveDirs{iFile} = char(createFigureOutputFolder(char(baseDir), groupLabel));
+end
+end
+
+function reportDirs = createPerMatReportFolders(resultsDir, fileLabels)
+[~, ~, reportBaseDirs] = ensurePerMatOutputFolders(resultsDir, fileLabels);
+reportDirs = reportBaseDirs;
+end
+
+function outPaths = normalizePerFilePathList(pathInput, nFiles)
+outPaths = repmat({''}, nFiles, 1);
+if nFiles <= 0
+    return;
+end
+
+if ischar(pathInput) || (isstring(pathInput) && isscalar(pathInput))
+    p = char(string(pathInput));
+    if strlength(strtrim(string(p))) > 0
+        outPaths(:) = {p};
+    end
+    return;
+end
+
+if isstring(pathInput)
+    n = min(nFiles, numel(pathInput));
+    for i = 1:n
+        p = char(string(pathInput(i)));
+        if strlength(strtrim(string(p))) > 0
+            outPaths{i} = p;
+        end
+    end
+    return;
+end
+
+if iscell(pathInput)
+    n = min(nFiles, numel(pathInput));
+    for i = 1:n
+        p = char(string(pathInput{i}));
+        if strlength(strtrim(string(p))) > 0
+            outPaths{i} = p;
+        end
+    end
+end
 end
 
 function safeName = sanitizeFileName(inName)
@@ -1102,18 +1224,18 @@ function outPath = buildReportOutputPath(targetDir, templateName, fileLabel)
 [~, baseName, ext] = fileparts(char(templateName));
 safeReportName = regexprep(baseName, '[^\w\- ]', '_');
 safeMatName = regexprep(char(string(fileLabel)), '[^\w\- ]', '_');
-datePrefix = char(datetime('now', 'Format', 'yyyyMMdd'));
+timeStampPrefix = char(datetime('now', 'Format', 'yyyyMMdd_HHmmss'));
 
-% Naming convention: <YYYYMMDD>_<matfilename>_<SelectedReportName>
-candidate = fullfile(targetDir, [datePrefix '_' safeMatName '_' safeReportName ext]);
+% Naming convention: <YYYYMMDD_HHMMSS>_<matfilename>_<SelectedReportName>
+candidate = fullfile(targetDir, [timeStampPrefix '_' safeMatName '_' safeReportName ext]);
 
 if ~isfile(candidate)
     outPath = candidate;
     return;
 end
 
-suffix = char(datetime('now', 'Format', 'yyyyMMdd_HHmmssSSS'));
-outPath = fullfile(targetDir, [datePrefix '_' safeMatName '_' safeReportName '_' suffix ext]);
+suffix = char(datetime('now', 'Format', 'HHmmssSSS'));
+outPath = fullfile(targetDir, [timeStampPrefix '_' safeMatName '_' safeReportName '_' suffix ext]);
 end
 
 function placeholderMap = buildPlaceholderMapForFile(variableNames, fileValues)
@@ -1144,6 +1266,13 @@ ext = lower(string(ext));
 openXmlExt = [".pptx",".pptm",".docx",".docm",".xlsx",".xlsm"];
 plainTextExt = [".txt",".md",".csv",".json",".xml",".html",".htm"];
 
+if (ext == ".docx" || ext == ".docm" || ext == ".doc") && ispc
+    okWord = replaceTextPlaceholdersInWordViaCom(docPath, placeholderMap);
+    if okWord
+        return;
+    end
+end
+
 if any(ext == openXmlExt)
     replaceInOpenXmlPackage(docPath, placeholderMap);
 elseif any(ext == plainTextExt)
@@ -1156,6 +1285,10 @@ end
 function replaceFigurePlaceholdersInReport(docPath, plotConfig, context, fileLabel, colorMap)
 [~, ~, ext] = fileparts(docPath);
 ext = lower(string(ext));
+if ext == ".docx" || ext == ".docm" || ext == ".doc"
+    replaceFigurePlaceholdersInWord(docPath, plotConfig, context, fileLabel, colorMap);
+    return;
+end
 if ext ~= ".pptx" && ext ~= ".pptm"
     return;
 end
@@ -1244,26 +1377,30 @@ if isempty(key)
     return;
 end
 
-openT = ['<' prefix ':t>'];
-closeT = ['</' prefix ':t>'];
+tOpenPattern = ['<' prefix ':t(?:\s+[^>]*)?>'];
+tClosePattern = ['</' prefix ':t>'];
+tCloseTag = ['</' prefix ':t>'];
+rPrPattern = ['(?:<' prefix ':rPr[^>]*/>\s*|<' prefix ':rPr[^>]*>(?:\s*<[^>]+>\s*)*</' prefix ':rPr>\s*)?'];
 
-boundary = [regexptranslate('escape', closeT) ...
-    '\s*</' prefix ':r>\s*<' prefix ':r[^>]*>\s*(?:<' prefix ':rPr[^>]*/>\s*)?' ...
-    regexptranslate('escape', openT)];
+boundary = [tClosePattern ...
+    '\s*</' prefix ':r>\s*<' prefix ':r[^>]*>\s*' ...
+    rPrPattern ...
+    tOpenPattern];
 
 tokenPattern = regexptranslate('escape', key(1));
 for i = 2:numel(key)
     tokenPattern = [tokenPattern '(?:' boundary ')?' regexptranslate('escape', key(i))]; %#ok<AGROW>
 end
 
-fullPattern = [regexptranslate('escape', openT) tokenPattern regexptranslate('escape', closeT)];
-replacement = [openT valueXmlSafe closeT];
+fullPattern = ['(' tOpenPattern ')' tokenPattern tClosePattern];
+replacement = ['$1' valueXmlSafe tCloseTag];
 contentOut = regexprep(contentOut, fullPattern, replacement);
 end
 
 function contentOut = annotateUnresolvedPlaceholdersInText(contentIn)
 % Add [NA] for any unresolved placeholder token like *veh_weight.
-pattern = '(?<!\w)(\*[A-Za-z][A-Za-z0-9_]*)(?!\s*\[NA\])';
+% Exclude **Figure[...] placeholders from generic KPI placeholder annotation.
+pattern = '(?<![\w\*])(\*(?![Ff]igure\b)[A-Za-z][A-Za-z0-9_]*)(?!\s*\[NA\])';
 contentOut = regexprep(contentIn, pattern, '$1 [NA]');
 end
 
@@ -1278,14 +1415,16 @@ end
 
 function contentOut = annotateSplitUnresolvedForPrefix(contentIn, prefix)
 contentOut = contentIn;
-openT = ['<' prefix ':t>'];
-closeT = ['</' prefix ':t>'];
+tOpenPattern = ['<' prefix ':t(?:\s+[^>]*)?>'];
+tClosePattern = ['</' prefix ':t>'];
+tCloseTag = ['</' prefix ':t>'];
+rPrPattern = ['(?:<' prefix ':rPr[^>]*/>\s*|<' prefix ':rPr[^>]*>(?:\s*<[^>]+>\s*)*</' prefix ':rPr>\s*)?'];
 
-splitPattern = [regexptranslate('escape', openT) '\*' regexptranslate('escape', closeT) ...
+splitPattern = ['(' tOpenPattern ')' '\*' tClosePattern ...
     '\s*</' prefix ':r>\s*<' prefix ':r[^>]*>\s*' ...
-    '(?:<' prefix ':rPr[^>]*/>\s*|<' prefix ':rPr[^>]*>.*?</' prefix ':rPr>\s*)?' ...
-    regexptranslate('escape', openT) '([A-Za-z][A-Za-z0-9_]*)' regexptranslate('escape', closeT)];
-splitReplacement = [openT '*$1 [NA]' closeT];
+    rPrPattern ...
+    tOpenPattern '((?![Ff]igure\b)[A-Za-z][A-Za-z0-9_]*)' tClosePattern];
+splitReplacement = ['$1*$2 [NA]' tCloseTag];
 contentOut = regexprep(contentOut, splitPattern, splitReplacement);
 end
 
@@ -1305,6 +1444,472 @@ if isfolder(pathStr)
     catch
     end
 end
+end
+
+function ok = replaceTextPlaceholdersInWordViaCom(docPath, placeholderMap)
+ok = false;
+if ~ispc
+    return;
+end
+wordApp = [];
+docObj = [];
+try
+    wordApp = actxserver('Word.Application');
+    docObj = wordApp.Documents.Open(docPath, false, false, false);
+    keys = placeholderMap.keys;
+    for i = 1:numel(keys)
+        token = string(keys{i});
+        replacement = string(placeholderMap(keys{i}));
+        replaceWordTokenEverywhere(docObj, token, replacement);
+    end
+    replaceWordShapeTextPlaceholders(docObj, placeholderMap);
+    docObj.Save;
+    ok = true;
+catch
+    ok = false;
+end
+cleanupWordAutomation(wordApp, docObj);
+end
+
+function replaceFigurePlaceholdersInWord(docPath, plotConfig, context, fileLabel, colorMap)
+if ~ispc || isempty(plotConfig)
+    return;
+end
+
+wordApp = [];
+docObj = [];
+imageMap = containers.Map('KeyType', 'char', 'ValueType', 'char');
+try
+    wordApp = actxserver('Word.Application');
+    docObj = wordApp.Documents.Open(docPath, false, false, false);
+    try
+        allText = string(docObj.Content.Text);
+        tokens = getFigurePlaceholderTokensFromText(allText);
+        if ~isempty(tokens)
+            for i = 1:numel(tokens)
+                try
+                    token = string(tokens(i));
+                    [~, figNo, subNo, found] = parseFigurePlaceholder(token, plotConfig);
+                    if ~found
+                        continue;
+                    end
+                    cacheKey = buildFigureCacheKey(figNo, subNo);
+                    if isKey(imageMap, cacheKey)
+                        imgPath = string(imageMap(cacheKey));
+                    else
+                        imgPath = exportFigurePlaceholderImage(plotConfig, context, fileLabel, colorMap, figNo, subNo);
+                        if strlength(imgPath) == 0
+                            continue;
+                        end
+                        cacheImagePath(imageMap, cacheKey, imgPath);
+                    end
+                    replaceWordTokenWithImage(docObj, token, imgPath);
+                catch
+                end
+            end
+        end
+    catch
+    end
+
+    % Also process figure placeholders inside Word Text Boxes (Shape text).
+    try
+        replaceWordShapeFigurePlaceholders(docObj, plotConfig, context, fileLabel, colorMap, imageMap);
+    catch
+    end
+    docObj.Save;
+catch ME
+    warning('Word figure placeholder replacement failed for %s: %s', docPath, ME.message);
+end
+cleanupWordFigureAutomation(wordApp, docObj, imageMap);
+end
+
+function replaceWordTokenEverywhere(docObj, tokenText, replacementText)
+docEnd = docObj.Content.End;
+searchRange = docObj.Range(0, docEnd);
+while true
+    findObj = searchRange.Find;
+    configureWordFind(findObj, tokenText);
+    found = logical(findObj.Execute);
+    if ~found
+        break;
+    end
+    searchRange.Text = char(replacementText);
+    nextStart = searchRange.End;
+    docEnd = docObj.Content.End;
+    if nextStart >= docEnd
+        break;
+    end
+    searchRange = docObj.Range(nextStart, docEnd);
+end
+end
+
+function replaceWordTokenWithImage(docObj, tokenText, imgPath)
+docEnd = docObj.Content.End;
+searchRange = docObj.Range(0, docEnd);
+while true
+    findObj = searchRange.Find;
+    configureWordFind(findObj, tokenText);
+    found = logical(findObj.Execute);
+    if ~found
+        break;
+    end
+
+    try
+        insertRange = searchRange.Duplicate;
+        searchRange.Text = '';
+        insertRange.InlineShapes.AddPicture(char(imgPath));
+    catch
+    end
+
+    nextStart = searchRange.End;
+    docEnd = docObj.Content.End;
+    if nextStart >= docEnd
+        break;
+    end
+    searchRange = docObj.Range(nextStart, docEnd);
+end
+end
+
+function replaceWordShapeFigurePlaceholders(docObj, plotConfig, context, fileLabel, colorMap, imageMap)
+shapeCollections = getWordShapeCollections(docObj);
+for iCollection = 1:numel(shapeCollections)
+    shpCollection = shapeCollections{iCollection};
+    try
+        shapeCount = shpCollection.Count;
+    catch
+        shapeCount = 0;
+    end
+    for iShape = shapeCount:-1:1
+        try
+            shp = shpCollection.Item(iShape);
+            processWordShapeFigurePlaceholder(shp, plotConfig, context, fileLabel, colorMap, imageMap);
+        catch
+        end
+    end
+end
+end
+
+function processWordShapeFigurePlaceholder(shp, plotConfig, context, fileLabel, colorMap, imageMap)
+% Recurse grouped shapes.
+try
+    groupCount = shp.GroupItems.Count;
+catch
+    groupCount = 0;
+end
+if groupCount > 0
+    for iGroup = groupCount:-1:1
+        try
+            processWordShapeFigurePlaceholder(shp.GroupItems.Item(iGroup), plotConfig, context, fileLabel, colorMap, imageMap);
+        catch
+        end
+    end
+    return;
+end
+
+rawText = getWordShapeText(shp);
+if strlength(rawText) == 0
+    return;
+end
+
+tokens = getFigurePlaceholderTokensFromText(rawText);
+if isempty(tokens)
+    return;
+end
+
+% Use first valid figure token found in the shape text.
+figNo = NaN;
+subNo = NaN;
+found = false;
+for iTok = 1:numel(tokens)
+    [~, figNoTry, subNoTry, ok] = parseFigurePlaceholder(tokens(iTok), plotConfig);
+    if ok
+        figNo = figNoTry;
+        subNo = subNoTry;
+        found = true;
+        break;
+    end
+end
+if ~found
+    markWordShapeUnresolved(shp, rawText);
+    return;
+end
+
+cacheKey = buildFigureCacheKey(figNo, subNo);
+if isKey(imageMap, cacheKey)
+    imgPath = string(imageMap(cacheKey));
+else
+    imgPath = exportFigurePlaceholderImage(plotConfig, context, fileLabel, colorMap, figNo, subNo);
+    if strlength(imgPath) == 0
+        markWordShapeUnresolved(shp, rawText);
+        return;
+    end
+    cacheImagePath(imageMap, cacheKey, imgPath);
+end
+
+% Keep the original Text Box/shape in place and fill it with image.
+% This preserves page layout and avoids moving content.
+try
+    placed = tryFillWordShapeWithImage(shp, imgPath);
+catch
+    placed = false;
+end
+if ~placed
+    markWordShapeUnresolved(shp, rawText);
+end
+end
+
+function replaceWordShapeTextPlaceholders(docObj, placeholderMap)
+shapeCollections = getWordShapeCollections(docObj);
+for iCollection = 1:numel(shapeCollections)
+    shpCollection = shapeCollections{iCollection};
+    try
+        shapeCount = shpCollection.Count;
+    catch
+        shapeCount = 0;
+    end
+    for iShape = shapeCount:-1:1
+        try
+            shp = shpCollection.Item(iShape);
+            processWordShapeTextPlaceholder(shp, placeholderMap);
+        catch
+        end
+    end
+end
+end
+
+function processWordShapeTextPlaceholder(shp, placeholderMap)
+% Recurse grouped shapes.
+try
+    groupCount = shp.GroupItems.Count;
+catch
+    groupCount = 0;
+end
+if groupCount > 0
+    for iGroup = groupCount:-1:1
+        try
+            processWordShapeTextPlaceholder(shp.GroupItems.Item(iGroup), placeholderMap);
+        catch
+        end
+    end
+    return;
+end
+
+rawText = getWordShapeText(shp);
+if strlength(rawText) == 0
+    return;
+end
+
+updatedText = rawText;
+keys = placeholderMap.keys;
+for i = 1:numel(keys)
+    token = string(keys{i});
+    value = string(placeholderMap(keys{i}));
+    updatedText = strrep(updatedText, token, value);
+end
+
+if strcmp(char(updatedText), char(rawText))
+    return;
+end
+setWordShapeText(shp, updatedText);
+end
+
+function shapeCollections = getWordShapeCollections(docObj)
+shapeCollections = {};
+try
+    shapeCollections{end + 1} = docObj.Shapes;
+catch
+end
+
+try
+    sectionCount = docObj.Sections.Count;
+catch
+    sectionCount = 0;
+end
+for iSection = 1:sectionCount
+    try
+        secObj = docObj.Sections.Item(iSection);
+    catch
+        continue;
+    end
+
+    try
+        headerCount = secObj.Headers.Count;
+    catch
+        headerCount = 0;
+    end
+    for iHeader = 1:headerCount
+        try
+            shapeCollections{end + 1} = secObj.Headers.Item(iHeader).Shapes; %#ok<AGROW>
+        catch
+        end
+    end
+
+    try
+        footerCount = secObj.Footers.Count;
+    catch
+        footerCount = 0;
+    end
+    for iFooter = 1:footerCount
+        try
+            shapeCollections{end + 1} = secObj.Footers.Item(iFooter).Shapes; %#ok<AGROW>
+        catch
+        end
+    end
+end
+end
+
+function txt = getWordShapeText(shp)
+txt = "";
+% Modern Word text boxes expose content through TextFrame2.
+try
+    hasTextFrame2 = logical(shp.TextFrame2.HasText);
+catch
+    hasTextFrame2 = false;
+end
+if hasTextFrame2
+    try
+        txt2 = string(shp.TextFrame2.TextRange.Text);
+        if strlength(strtrim(erase(txt2, char(13)))) > 0
+            txt = txt2;
+            return;
+        end
+    catch
+    end
+end
+
+% Fallback for legacy shapes.
+try
+    hasTextFrame = logical(shp.TextFrame.HasText);
+catch
+    hasTextFrame = false;
+end
+if ~hasTextFrame
+    return;
+end
+
+try
+    txt = string(shp.TextFrame.TextRange.Text);
+    % Some textbox variants expose "oTextBox" here; treat as non-content.
+    if strcmpi(strtrim(char(txt)), 'oTextBox')
+        txt = "";
+    end
+catch
+    txt = "";
+end
+end
+
+function setWordShapeText(shp, txt)
+value = char(string(txt));
+try
+    shp.TextFrame.TextRange.Text = value;
+    return;
+catch
+end
+try
+    shp.TextFrame2.TextRange.Text = value;
+catch
+end
+end
+
+function ok = tryFillWordShapeWithImage(shp, imgPath)
+ok = false;
+if ~isfile(imgPath)
+    return;
+end
+try
+    shp.Fill.UserPicture(char(imgPath));
+catch
+    return;
+end
+setWordShapeText(shp, "");
+ok = true;
+end
+
+function markWordShapeUnresolved(shp, rawText)
+if contains(rawText, "[NA]")
+    return;
+end
+setWordShapeText(shp, rawText + " [NA]");
+end
+
+function configureWordFind(findObj, tokenText)
+try
+    findObj.ClearFormatting;
+catch
+end
+try
+    findObj.Replacement.ClearFormatting;
+catch
+end
+findObj.Text = char(string(tokenText));
+findObj.Forward = true;
+findObj.Wrap = 0; % wdFindStop
+findObj.Format = false;
+findObj.MatchCase = false;
+findObj.MatchWholeWord = false;
+findObj.MatchWildcards = false;
+findObj.MatchSoundsLike = false;
+findObj.MatchAllWordForms = false;
+end
+
+function tokens = getFigurePlaceholderTokensFromText(rawText)
+txt = normalizeWordPlaceholderText(rawText);
+matches = regexp(txt, '(?i)\*\*\s*Figure\s*\[\s*[^\]\r\n]+\s*\](?:\s*\[\s*\d+\s*\])?', 'match');
+if isempty(matches)
+    tokens = strings(0, 1);
+    return;
+end
+tokens = unique(string(matches), 'stable');
+tokens = tokens(:);
+end
+
+function out = normalizeWordPlaceholderText(rawText)
+txt = char(string(rawText));
+txt = strrep(txt, char(160), ' ');
+txt = strrep(txt, char(8203), '');
+txt = strrep(txt, char(8204), '');
+txt = strrep(txt, char(8205), '');
+txt = regexprep(txt, '[\x00-\x08\x0B\x0C\x0E-\x1F]', '');
+out = string(txt);
+end
+
+function cleanupWordAutomation(wordApp, docObj)
+try
+    if ~isempty(docObj)
+        try
+            docObj.Close(false);
+        catch
+        end
+    end
+catch
+end
+try
+    if ~isempty(wordApp)
+        try
+            wordApp.Quit;
+        catch
+        end
+        try
+            delete(wordApp);
+        catch
+        end
+    end
+catch
+end
+end
+
+function cleanupWordFigureAutomation(wordApp, docObj, imageMap)
+try
+    keys = imageMap.keys;
+    for i = 1:numel(keys)
+        p = imageMap(keys{i});
+        if isfile(p)
+            delete(p);
+        end
+    end
+catch
+end
+cleanupWordAutomation(wordApp, docObj);
 end
 
 function replaceFigurePlaceholdersInPpt(pptPath, plotConfig, context, fileLabel, colorMap)
@@ -1406,7 +2011,7 @@ else
         markShapeUnresolved(shp, rawText);
         return;
     end
-    imageMap(cacheKey) = char(imgPath);
+    cacheImagePath(imageMap, cacheKey, imgPath);
 end
 
 left = shp.Left;
@@ -1454,38 +2059,98 @@ figNo = NaN;
 subNo = NaN;
 found = false;
 
-txt = char(rawText);
-baseMatch = regexp(txt, '(?i)\*\*\s*Figure', 'match', 'once');
-if isempty(baseMatch)
+txt = char(normalizeWordPlaceholderText(rawText));
+tokenMatch = regexp(txt, '(?i)\*\*\s*Figure\s*\[\s*[^\]]+\s*\](?:\s*\[\s*\d+\s*\])?', 'match', 'once');
+if isempty(tokenMatch)
+    return;
+end
+token = string(tokenMatch);
+
+figRefParts = regexp(tokenMatch, '(?i)^\s*\*\*\s*Figure\s*\[\s*([^\]]+)\s*\]', 'tokens', 'once');
+if isempty(figRefParts)
     return;
 end
 
-token = string(baseMatch);
-idx = regexp(txt, '(?i)\*\*\s*Figure', 'start', 'once');
-tail = txt(idx:min(numel(txt), idx + 80));
-bracketTokens = regexp(tail, '\[\s*(\d+)\s*\]', 'tokens');
-nums = strings(0, 1);
-for i = 1:numel(bracketTokens)
-    if ~isempty(bracketTokens{i})
-        nums(end+1, 1) = string(bracketTokens{i}{1}); %#ok<AGROW>
-    end
+figRef = string(figRefParts{1});
+[figNo, okFig] = resolveFigureReference(figRef, plotConfig);
+if ~okFig
+    return;
 end
 
-allFigs = unique(plotConfig.("Figure No"), 'stable');
-if isempty(nums)
-    if isempty(allFigs)
+subParts = regexp(tokenMatch, '\]\s*\[\s*(\d+)\s*\]\s*$', 'tokens', 'once');
+if ~isempty(subParts)
+    subNo = str2double(string(subParts{1}));
+    if isnan(subNo)
         return;
     end
-    figNo = double(allFigs(1));
-else
-    figNo = str2double(nums{1});
-end
-
-if numel(nums) >= 2
-    subNo = str2double(nums{2});
 end
 
 found = true;
+end
+
+function [figNo, ok] = resolveFigureReference(figRef, plotConfig)
+figNo = NaN;
+ok = false;
+
+if ~ismember("Figure No", string(plotConfig.Properties.VariableNames))
+    return;
+end
+
+figRef = strtrim(string(figRef));
+if strlength(figRef) == 0 || ismissing(figRef)
+    return;
+end
+
+numCandidate = str2double(figRef);
+figureNos = unique(double(plotConfig.("Figure No")), 'stable');
+if ~isnan(numCandidate) && any(figureNos == numCandidate)
+    figNo = numCandidate;
+    ok = true;
+    return;
+end
+
+nameCols = getFigureNameColumns(plotConfig);
+if isempty(nameCols)
+    return;
+end
+
+refNorm = normalizeFigureReferenceText(figRef);
+if strlength(refNorm) == 0
+    return;
+end
+
+for iCol = 1:numel(nameCols)
+    colName = nameCols(iCol);
+    colVals = strtrim(string(plotConfig.(colName)));
+    valid = ~ismissing(colVals) & strlength(colVals) > 0;
+    if ~any(valid)
+        continue;
+    end
+    normVals = normalizeFigureReferenceText(colVals(valid));
+    hit = find(normVals == refNorm, 1, 'first');
+    if isempty(hit)
+        continue;
+    end
+    validIdx = find(valid);
+    figNo = double(plotConfig.("Figure No")(validIdx(hit)));
+    ok = true;
+    return;
+end
+end
+
+function nameCols = getFigureNameColumns(plotConfig)
+known = ["Figure Name", "Figure", "Figure Title", "Name"];
+vars = string(plotConfig.Properties.VariableNames);
+nameCols = known(ismember(known, vars));
+nameCols = nameCols(:);
+end
+
+function out = normalizeFigureReferenceText(inText)
+out = lower(strtrim(string(inText)));
+out = regexprep(out, '\s+', ' ');
+out = regexprep(out, '[^a-z0-9_ ]', '');
+out = regexprep(out, '\s+', '_');
+out = regexprep(out, '^_+|_+$', '');
 end
 
 function cacheKey = buildFigureCacheKey(figNo, subNo)
@@ -1494,6 +2159,10 @@ if isnan(subNo)
 else
     cacheKey = sprintf('F%d_S%d', figNo, subNo);
 end
+end
+
+function cacheImagePath(imageMap, cacheKey, imgPath)
+imageMap(char(cacheKey)) = char(imgPath); %#ok<NASGU>
 end
 
 function imagePath = exportFigurePlaceholderImage(plotConfig, context, fileLabel, colorMap, figNo, subNo)
@@ -1748,7 +2417,7 @@ imgMap = containers.Map('KeyType', 'char', 'ValueType', 'char');
 tempAssets = cell(0, 1);
 nTempAssets = 0;
 try
-    requestedKeys = getRequestedFigureKeysFromPpt(pptPath, plotConfig, defaultFig);
+    requestedKeys = getRequestedFigureKeysFromPpt(pptPath, plotConfig);
     if isempty(requestedKeys)
         requestedKeys = getAllFigureKeys(plotConfig);
     end
@@ -1781,6 +2450,14 @@ try
     mapKeys = imgMap.keys;
     for i = 1:numel(mapKeys)
         mapStruct.(mapKeys{i}) = imgMap(mapKeys{i});
+        [figNoAlias, subNoAlias, okAlias] = parseFigureCacheKey(mapKeys{i});
+        if okAlias
+            aliasKeys = getFigureNameCacheKeys(plotConfig, figNoAlias, subNoAlias);
+            for iAlias = 1:numel(aliasKeys)
+                aliasKey = char(aliasKeys(iAlias));
+                mapStruct.(aliasKey) = imgMap(mapKeys{i});
+            end
+        end
     end
 
     mapJsonPath = [tempname '.json'];
@@ -1837,7 +2514,7 @@ cleanupFiles({zipPath});
 cleanupTempDir(workDir);
 end
 
-function requestedKeys = getRequestedFigureKeysFromPpt(pptPath, plotConfig, defaultFig)
+function requestedKeys = getRequestedFigureKeysFromPpt(pptPath, plotConfig)
 requestedKeys = strings(0, 1);
 zipPath = [tempname '.zip'];
 workDir = tempname;
@@ -1859,17 +2536,28 @@ try
         localKeys = strings(numel(starts), 1);
         nLocal = 0;
         for k = 1:numel(starts)
-            figNo = defaultFig;
             subNo = NaN;
             tail = txt(starts(k):min(numel(txt), starts(k) + 120));
             tokenText = regexprep(tail, '<[^>]+>', '');
             tokenText = regexp(tokenText, '^[^\r\n]*', 'match', 'once');
-            bracketTokens = regexp(tokenText, '\[\s*(\d+)\s*\]', 'tokens');
-            if ~isempty(bracketTokens)
-                figNo = str2double(bracketTokens{1}{1});
+            tokenMatch = regexp(tokenText, '(?i)\*\*\s*Figure\s*\[\s*[^\]]+\s*\](?:\s*\[\s*\d+\s*\])?', 'match', 'once');
+            if isempty(tokenMatch)
+                continue;
             end
-            if numel(bracketTokens) >= 2
-                subNo = str2double(bracketTokens{2}{1});
+            figRefParts = regexp(tokenMatch, '(?i)^\s*\*\*\s*Figure\s*\[\s*([^\]]+)\s*\]', 'tokens', 'once');
+            if isempty(figRefParts)
+                continue;
+            end
+            [figNo, okFig] = resolveFigureReference(string(figRefParts{1}), plotConfig);
+            if ~okFig
+                continue;
+            end
+            subParts = regexp(tokenMatch, '\]\s*\[\s*(\d+)\s*\]\s*$', 'tokens', 'once');
+            if ~isempty(subParts)
+                subNo = str2double(string(subParts{1}));
+                if isnan(subNo)
+                    continue;
+                end
             end
             if ~any(figureNos == figNo)
                 continue;
@@ -1936,6 +2624,52 @@ end
 ok = ~isnan(figNo);
 end
 
+function aliasKeys = getFigureNameCacheKeys(plotConfig, figNo, subNo)
+aliasKeys = strings(0, 1);
+if ~ismember("Figure No", string(plotConfig.Properties.VariableNames))
+    return;
+end
+
+nameCols = getFigureNameColumns(plotConfig);
+if isempty(nameCols)
+    return;
+end
+
+rows = plotConfig(double(plotConfig.("Figure No")) == double(figNo), :);
+if isempty(rows)
+    return;
+end
+
+keys = strings(0, 1);
+for iCol = 1:numel(nameCols)
+    colName = nameCols(iCol);
+    names = strtrim(string(rows.(colName)));
+    names = names(~ismissing(names) & strlength(names) > 0);
+    for iName = 1:numel(names)
+        key = buildFigureNameCacheKey(names(iName), subNo);
+        if strlength(key) > 0
+            keys(end+1, 1) = key; %#ok<AGROW>
+        end
+    end
+end
+if ~isempty(keys)
+    aliasKeys = unique(keys, 'stable');
+end
+end
+
+function key = buildFigureNameCacheKey(figName, subNo)
+normName = normalizeFigureReferenceText(figName);
+if strlength(normName) == 0
+    key = "";
+    return;
+end
+if isnan(subNo)
+    key = "N_" + normName;
+else
+    key = string(sprintf('N_%s_S%d', char(normName), double(subNo)));
+end
+end
+
 function scriptText = buildPptFallbackPowerShellScript()
 lines = {
 'param('
@@ -1973,17 +2707,30 @@ lines = {
 '  $txt = Get-ShapeText $shape'
 '  if ([string]::IsNullOrEmpty($txt)) { return }'
 ''
-'  $m = [regex]::Match($txt, ''(?i)\*\*\s*Figure'')'
+'  $m = [regex]::Match($txt, ''(?i)\*\*\s*Figure\s*\[\s*([^\]]+)\s*\](?:\s*\[\s*(\d+)\s*\])?'')'
 '  if (-not $m.Success) { return }'
 ''
-'  $fig = $defaultFig'
+'  $figToken = [string]$m.Groups[1].Value'
 '  $sub = $null'
-'  $tail = $txt.Substring($m.Index, [Math]::Min(80, $txt.Length - $m.Index))'
-'  $nums = [regex]::Matches($tail, ''\[\s*(\d+)\s*\]'')'
-'  if ($nums.Count -ge 1) { $fig = [int]$nums[0].Groups[1].Value }'
-'  if ($nums.Count -ge 2) { $sub = [int]$nums[1].Groups[1].Value }'
+'  if ($m.Groups.Count -ge 3 -and $m.Groups[2].Success) {'
+'    $subVal = 0'
+'    if ([int]::TryParse($m.Groups[2].Value, [ref]$subVal)) { $sub = $subVal } else { return }'
+'  }'
 ''
-'  $key = if ($null -ne $sub) { ''F{0}_S{1}'' -f $fig, $sub } else { ''F{0}'' -f $fig }'
+'  $figVal = 0'
+'  if ([int]::TryParse($figToken.Trim(), [ref]$figVal)) {'
+'    $keyBase = ''F{0}'' -f $figVal'
+'  } else {'
+'    $nameNorm = $figToken.ToLowerInvariant().Trim()'
+'    $nameNorm = [regex]::Replace($nameNorm, ''\s+'', '' '')'
+'    $nameNorm = [regex]::Replace($nameNorm, ''[^a-z0-9_ ]'', '''')'
+'    $nameNorm = [regex]::Replace($nameNorm, ''\s+'', ''_'')'
+'    $nameNorm = [regex]::Replace($nameNorm, ''^_+|_+$'', '''')'
+'    if ([string]::IsNullOrWhiteSpace($nameNorm)) { return }'
+'    $keyBase = ''N_{0}'' -f $nameNorm'
+'  }'
+''
+'  $key = if ($null -ne $sub) { ''{0}_S{1}'' -f $keyBase, $sub } else { $keyBase }'
 ''
 '  $imgPath = Get-MapValue $mapObj $key'
 '  if (($null -ne $imgPath) -and (Test-Path $imgPath)) {'
@@ -2075,7 +2822,7 @@ end
 if nargin < 7
     figSaveDir = "";
 end
-saveFigs = strlength(string(figSaveDir)) > 0;
+figSaveDirsByFile = normalizePerFilePathList(figSaveDir, numel(contextsByFile));
 
 requiredPlotCols = ["Figure No", "Subplot", "Axis", "Signals and Titles"];
 for iCol = 1:numel(requiredPlotCols)
@@ -2104,6 +2851,11 @@ end
 for iFile = 1:numel(contextsByFile)
     context = contextsByFile{iFile};
     fileLabel = string(fileLabels(iFile));
+    fileFigSaveDir = "";
+    if iFile <= numel(figSaveDirsByFile)
+        fileFigSaveDir = string(figSaveDirsByFile{iFile});
+    end
+    saveFigs = strlength(fileFigSaveDir) > 0 && isfolder(char(fileFigSaveDir));
 
     for iGroup = 1:numel(groupNames)
         groupMask = allGroups == groupNames(iGroup);
@@ -2122,13 +2874,13 @@ for iFile = 1:numel(contextsByFile)
             if nSubplots == 0
                 continue;
             end
-
-            if groupNames(iGroup) == "GENERAL"
-                figTitle = sprintf('%s - Figure %s', fileLabel, string(figNo));
-            else
-                figTitle = sprintf('%s - %s - Figure %s', ...
-                    fileLabel, upper(groupNames(iGroup)), string(figNo));
+            if ~hasPlottableFigureSignals(figRows, ignorePrintStatus)
+                continue;
             end
+
+            groupLabel = upper(groupNames(iGroup));
+            figTitle = sprintf('Figure %s _ %s _ %s', ...
+                char(string(figNo)), char(groupLabel), char(string(fileLabel)));
 
             hFig = figure('Name', figTitle, 'NumberTitle', 'off', 'Color', 'w');
             t = tiledlayout(nSubplots, 1, 'TileSpacing', 'compact', 'Padding', 'compact');
@@ -2258,9 +3010,9 @@ for iFile = 1:numel(contextsByFile)
 
             if saveFigs
                 try
-                    baseName = sprintf('%s_%s_Figure_%s', char(fileLabel), char(groupNames(iGroup)), char(string(figNo)));
+                    baseName = sprintf('Figure_%s_%s_%s', char(string(figNo)), char(groupNames(iGroup)), char(fileLabel));
                     safeBase = sanitizeFileName(baseName);
-                    figPath = makeUniqueFilePath(char(string(figSaveDir)), safeBase, '.fig');
+                    figPath = makeUniqueFilePath(char(fileFigSaveDir), safeBase, '.fig');
                     savefig(hFig, figPath);
                 catch
                 end
@@ -2290,22 +3042,73 @@ plotGroupNames = plotGroupNames(:);
 end
 
 function tf = shouldPlotRow(rowTable, ignorePrintStatus)
+tf = false;
+vars = string(rowTable.Properties.VariableNames);
+
+if ismember("Axis", vars)
+    axisVal = upper(strtrim(string(rowTable.("Axis")(1))));
+    if axisVal == "T" || axisVal == "X"
+        tf = true;
+        return;
+    end
+end
+
 if nargin >= 2 && ignorePrintStatus
     tf = true;
     return;
 end
 
-if ~ismember("Print", string(rowTable.Properties.VariableNames))
-    tf = true;
+if ~ismember("Print", vars)
     return;
 end
 
 rawVal = rowTable.("Print")(1);
-if ismissing(rawVal) || (isstring(rawVal) && strlength(strtrim(rawVal)) == 0)
-    tf = true;
+if ismissing(rawVal)
     return;
 end
-tf = getDisplayMask(rawVal);
+
+if isstring(rawVal) || ischar(rawVal)
+    txt = strtrim(string(rawVal));
+    if strlength(txt) == 0
+        return;
+    end
+    numVal = str2double(txt);
+    tf = ~isnan(numVal) && (numVal == 1);
+    return;
+end
+
+if isnumeric(rawVal) || islogical(rawVal)
+    numVal = double(rawVal);
+    tf = isfinite(numVal) && (numVal == 1);
+    return;
+end
+
+txt = strtrim(string(rawVal));
+if strlength(txt) == 0 || ismissing(txt)
+    return;
+end
+numVal = str2double(txt);
+tf = ~isnan(numVal) && (numVal == 1);
+end
+
+function tf = hasPlottableFigureSignals(figRows, ignorePrintStatus)
+tf = false;
+if isempty(figRows) || ~ismember("Axis", string(figRows.Properties.VariableNames))
+    return;
+end
+
+axisKinds = upper(strtrim(string(figRows.("Axis"))));
+yRows = figRows(axisKinds == "Y", :);
+if isempty(yRows)
+    return;
+end
+
+for iRow = 1:height(yRows)
+    if shouldPlotRow(yRows(iRow, :), ignorePrintStatus)
+        tf = true;
+        return;
+    end
+end
 end
 
 function out = buildAxisLabel(labelVal, unitVal)
@@ -2542,3 +3345,4 @@ else
     out = "N.A";
 end
 end
+

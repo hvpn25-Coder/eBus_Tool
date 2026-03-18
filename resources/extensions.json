@@ -1,0 +1,16 @@
+{
+  "mw.desktop.quickAccess": {
+    "items": [
+      {
+        "name": "ebus_tool.quickaccess.open",
+        "type": "PushButton",
+        "action": {
+          "text": "eBus_Tool",
+          "description": "Open eBus_Tool workspace",
+          "icon": "./icons/eBus_E.svg",
+          "callback": "openEbusTool"
+        }
+      }
+    ]
+  }
+}
