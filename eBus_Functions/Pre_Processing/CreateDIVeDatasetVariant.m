@@ -1,5 +1,5 @@
-function veh_param_automation
-% VEH_PARAM_AUTOMATION
+function CreateDIVeDatasetVariant
+% CREATEDIVEDATASETVARIANT
 % 1) Ask user to select a folder.
 % 2) Read Veh_Param.m variable assignments.
 % 3) Show GUI table with Variable, Value, and Edit_1..Edit_10.
@@ -983,7 +983,7 @@ addedIdx = find(isAddedMask);
 
 summaryLines = strings(numel(updateNotes) + 4, 1);
 lineIdx = 1;
-summaryLines(lineIdx) = "% Auto-update summary (Codex)";
+summaryLines(lineIdx) = "% Auto-update summary (CreateDIVeDatasetVariant)";
 lineIdx = lineIdx + 1;
 
 summaryLines(lineIdx) = "% Updated variables (default -> updated):";
@@ -1026,7 +1026,7 @@ end
 
 function outText = stripAutoUpdateSummary(inText)
 summaryPattern = [ ...
-    '^% Auto-update summary \(Codex\)(?:\r\n|\n|\r)', ...
+    '^% Auto-update summary \(CreateDIVeDatasetVariant\)(?:\r\n|\n|\r)', ...
     '(?:%.*(?:\r\n|\n|\r))*?', ...
     '% End auto-update summary(?:\r\n|\n|\r)*'];
 outText = regexprep(inText, summaryPattern, '', 'once');
