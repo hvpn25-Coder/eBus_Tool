@@ -8,11 +8,16 @@ end
 cd(repoRoot);
 
 scriptsDir = fullfile(repoRoot, 'eBus_Functions', 'Post_Processing', 'WorkScripts');
+utilityDir = fullfile(repoRoot, 'eBus_Functions', 'Pre_Processing');
 script1 = fullfile(scriptsDir, 'DIVe_KPI_Plots_Check.m');
 script2 = fullfile(scriptsDir, 'Batch_DIVe_Sim_Processing.m');
 script3 = fullfile(scriptsDir, 'eBus_Release_Check.m');
+script4 = fullfile(utilityDir, 'CreateDIVeDatasetVariant.m');
 if ~localIsFolderOnPath(scriptsDir)
     addpath(scriptsDir);
+end
+if ~localIsFolderOnPath(utilityDir)
+    addpath(utilityDir);
 end
 
 bannerWidth = 118;
@@ -43,6 +48,13 @@ localPrintScriptLink( ...
     'matlab:eBus_Release_Check', ...
     'Compare eBus Configuration Releases. Both the Release folders must contain an identical names of set of .mat simulation files');
 fprintf('\n');
+localPrintSectionBanner(bannerWidth, 'UTILITY');
+fprintf('\n');
+localPrintScriptLink( ...
+    'CreateDIVeDatasetVariant', ...
+    script4, ...
+    'matlab:CreateDIVeDatasetVariant', ...
+    '');
 localPrintThankYouBanner(bannerWidth);
 end
 
@@ -55,7 +67,10 @@ if ~isfile(scriptPath)
 end
 
 fprintf('%s <a href="%s">%s</a>\n', bullet, hrefCmd, label);
-fprintf('\t%s\n\n', descriptionText);
+if strlength(strtrim(string(descriptionText))) > 0
+    fprintf('\t%s\n', descriptionText);
+end
+fprintf('\n');
 end
 
 function localPrintCentered(textValue, totalWidth)
@@ -74,6 +89,13 @@ sep = repmat('=', 1, bannerWidth);
 message = 'Thank You';
 fprintf('%s\n', sep);
 localPrintCentered(localMakeBoldText(message), bannerWidth);
+fprintf('%s\n', sep);
+end
+
+function localPrintSectionBanner(bannerWidth, titleText)
+sep = repmat('=', 1, bannerWidth);
+fprintf('%s\n', sep);
+localPrintCentered(localMakeBoldText(titleText), bannerWidth);
 fprintf('%s\n', sep);
 end
 

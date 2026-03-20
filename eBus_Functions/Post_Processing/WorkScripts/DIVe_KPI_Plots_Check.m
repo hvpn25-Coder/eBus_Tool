@@ -23,7 +23,7 @@ updateStatusBox(statusBox, 0.05, 'Reading KPI/plot configuration...');
 
 thisScriptDir = fileparts(mfilename('fullpath'));
 kpiBankPath = fullfile(thisScriptDir, '..', 'KPIs_Plots', 'eBus_KPIs_Plots_Bank.xlsx');
-templateDir = fullfile(thisScriptDir, '..', 'Report_Templates');
+templateDir = resolveReportTemplateDir(fullfile(thisScriptDir, '..', 'Report_Templates'));
 
 if ~isfile(kpiBankPath)
     error('KPI bank not found at: %s', kpiBankPath);
@@ -396,13 +396,9 @@ end
 fprintf('\nGenerate Report:\n');
 printHyperlinkGrid(data.templateNames, "openGenerateReportTemplate", false);
 if isfield(data, 'templateDir') && strlength(string(data.templateDir)) > 0
-    templateBaseDir = char(string(data.templateDir));
-    simDocPath = fullfile(fileparts(templateBaseDir), 'Sim_Doc_Templates');
-    if ~isfolder(simDocPath)
-        simDocPath = templateBaseDir;
-    end
-    if isfolder(simDocPath)
-        templateCmd = sprintf('matlab:winopen(''%s'')', escapeForMatlabCharLiteral(simDocPath));
+    templateFolderPath = char(string(data.templateDir));
+    if isfolder(templateFolderPath)
+        templateCmd = sprintf('matlab:winopen(''%s'')', escapeForMatlabCharLiteral(templateFolderPath));
         fprintf('\nTo Add/Edit the Report Template <a href="%s">[Report_Templates]</a>\n', templateCmd);
     end
 end
@@ -701,6 +697,14 @@ templateNames = string({items.name})';
 templatePaths = cell(numel(items), 1);
 for i = 1:numel(items)
     templatePaths{i} = fullfile(items(i).folder, items(i).name);
+end
+end
+
+function templateDir = resolveReportTemplateDir(baseTemplateDir)
+templateDir = string(baseTemplateDir);
+singleSimDir = fullfile(char(templateDir), 'Single_Sim_Report_Templates');
+if isfolder(singleSimDir)
+    templateDir = string(singleSimDir);
 end
 end
 
