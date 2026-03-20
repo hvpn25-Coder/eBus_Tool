@@ -28,7 +28,7 @@ numEditColumns = 10;
 editColumnHeaders = arrayfun(@(n)sprintf('Edit_%d', n), 1:numEditColumns, 'UniformOutput', false);
 tableData = [varNames, varValues, repmat({''}, numel(entries), numEditColumns)];
 
-fig = uifigure('Name', 'Veh Param Editor', 'Position', [100 100 760 500]);
+fig = uifigure('Name', 'Veh Param Editor', 'Position', [100 100 900 620]);
 fig.AutoResizeChildren = 'off';
 
 tbl = uitable( ...
@@ -127,12 +127,34 @@ saveBtn = uibutton( ...
     'Position', [620 20 110 30], ...
     'ButtonPushedFcn', @(~, ~)saveChanges(fileText, selectedFolder, selectedMFileName, fig, numEditColumns));
 
+outputPanel = uipanel( ...
+    fig, ...
+    'Title', 'Output', ...
+    'Position', [20 5 720 90]);
+
+outputList = uilistbox( ...
+    outputPanel, ...
+    'Items', {'No output folders created yet.'}, ...
+    'Value', 'No output folders created yet.', ...
+    'Enable', 'off', ...
+    'Position', [10 28 700 38], ...
+    'ValueChangedFcn', @(src, ~)handleOutputSelection(fig, src.Value));
+
+outputLink = uihyperlink( ...
+    outputPanel, ...
+    'Text', 'Open selected folder', ...
+    'Position', [10 6 200 18], ...
+    'Visible', 'off', ...
+    'HyperlinkClickedFcn', @(~, ~)openSelectedOutputFolder(fig));
+
 fig.UserData = struct( ...
     'allTableData', {tableData}, ...
     'visibleRowIdx', (1:size(tableData, 1)).', ...
     'entries', entries, ...
     'editHeaderNames', string(editColumnHeaders), ...
     'nameMode', "timestamp", ...
+    'outputFolders', strings(0, 1), ...
+    'selectedOutputFolder', "", ...
     'numEditColumns', numEditColumns, ...
     'ui', struct( ...
         'tbl', tbl, ...
@@ -147,7 +169,10 @@ fig.UserData = struct( ...
         'newValField', newValField, ...
         'addRowBtn', addRowBtn, ...
         'nameModeGroup', nameModeGroup, ...
-        'saveBtn', saveBtn));
+        'saveBtn', saveBtn, ...
+        'outputPanel', outputPanel, ...
+        'outputList', outputList, ...
+        'outputLink', outputLink));
 
 layoutVehParamUI(fig);
 fig.SizeChangedFcn = @(src, ~)layoutVehParamUI(src);
@@ -248,6 +273,9 @@ figH = fig.Position(4);
 left = 20;
 right = 20;
 gap = 8;
+outputPanelY = 5;
+outputPanelH = 90;
+nameGroupY = outputPanelY + outputPanelH + 8;
 
 filterLabelW = 110;
 filterH = 22;
@@ -260,7 +288,7 @@ u.filterLabel.Position = [left filterY filterLabelW filterH];
 u.filterField.Position = [filterX filterY filterW filterH];
 u.resetBtn.Position = [figW - right - resetW filterY resetW filterH];
 
-tableBottom = 100;
+tableBottom = 200;
 tableTop = filterY - 36;
 tableWidth = max(420, figW - left - right);
 tableHeight = max(120, tableTop - tableBottom);
@@ -283,7 +311,7 @@ for idx = 1:n
     headerX = headerX + editWidths(idx);
 end
 
-rowY = 60;
+rowY = nameGroupY + 58;
 u.newVarLabel.Position = [left rowY 85 22];
 
 newVarX = left + 90;
@@ -301,10 +329,85 @@ newValFieldX = newValLabelX + 85;
 newValFieldW = max(120, addRowX - 10 - newValFieldX);
 u.newValField.Position = [newValFieldX rowY newValFieldW 22];
 u.addRowBtn.Position = [addRowX rowY 90 24];
-u.saveBtn.Position = [saveX 20 saveW 30];
+u.saveBtn.Position = [saveX nameGroupY + 10 saveW 30];
 
 nameGroupW = max(260, addRowX - 20 - left);
-u.nameModeGroup.Position = [left 5 nameGroupW 50];
+u.nameModeGroup.Position = [left nameGroupY nameGroupW 50];
+u.outputPanel.Position = [left outputPanelY tableWidth outputPanelH];
+
+panelW = u.outputPanel.Position(3);
+panelH = u.outputPanel.Position(4);
+u.outputList.Position = [10 28 max(160, panelW - 20) max(28, panelH - 52)];
+u.outputLink.Position = [10 6 max(160, panelW - 20) 18];
+end
+
+function handleOutputSelection(fig, selectedValue)
+state = fig.UserData;
+state.selectedOutputFolder = string(selectedValue);
+fig.UserData = state;
+updateOutputLink(fig);
+end
+
+function updateOutputPanel(fig, folderPaths)
+state = fig.UserData;
+u = state.ui;
+folderPaths = reshape(string(folderPaths), [], 1);
+state.outputFolders = folderPaths;
+
+if isempty(folderPaths)
+    u.outputList.Items = {'No output folders created yet.'};
+    u.outputList.Value = 'No output folders created yet.';
+    u.outputList.Enable = 'off';
+    state.selectedOutputFolder = "";
+else
+    folderItems = cellstr(folderPaths);
+    u.outputList.Items = folderItems;
+    u.outputList.Value = folderItems{end};
+    u.outputList.Enable = 'on';
+    state.selectedOutputFolder = folderPaths(end);
+end
+
+fig.UserData = state;
+updateOutputLink(fig);
+end
+
+function updateOutputLink(fig)
+state = fig.UserData;
+u = state.ui;
+if strlength(state.selectedOutputFolder) == 0
+    u.outputLink.Visible = 'off';
+    u.outputLink.Tooltip = '';
+    return;
+end
+
+u.outputLink.Text = "Open selected folder";
+u.outputLink.Tooltip = char(state.selectedOutputFolder);
+u.outputLink.Visible = 'on';
+end
+
+function openSelectedOutputFolder(fig)
+state = fig.UserData;
+folderPath = char(state.selectedOutputFolder);
+if isempty(folderPath)
+    return;
+end
+
+if ~isfolder(folderPath)
+    uialert(fig, sprintf('The folder no longer exists:\n%s', folderPath), 'Missing Folder');
+    return;
+end
+
+try
+    if ispc
+        winopen(folderPath);
+    elseif ismac
+        system(['open "', folderPath, '" &']);
+    else
+        system(['xdg-open "', folderPath, '" >/dev/null 2>&1 &']);
+    end
+catch ME
+    uialert(fig, sprintf('Unable to open folder:\n%s\n\n%s', folderPath, ME.message), 'Open Failed');
+end
 end
 
 function addVariableRow(fig, tbl, filterField, newVarField, newValField, numEditColumns)
@@ -418,6 +521,8 @@ if isempty(createdFolders)
     uialert(fig, 'No Edit columns contain values and no new variables were added. No folders were created.', 'No Output');
     return;
 end
+
+updateOutputPanel(fig, createdFolders);
 
 messageLines = "Created folder(s):" + newline + strjoin(createdFolders, newline);
 if ~isempty(errors)
