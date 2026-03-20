@@ -369,6 +369,7 @@ editedData = state.allTableData;
 entries = state.entries;
 editHeaderNames = state.editHeaderNames;
 namingMode = state.nameMode;
+useHeaderNaming = (namingMode == "header");
 
 sourceFolderName = string(getLeafName(selectedFolder));
 timestamp = string(datetime('now', 'Format', 'yyyyMMdd_HHmmss'));
@@ -385,42 +386,32 @@ for editIndex = 1:numEditColumns
         continue;
     end
 
-    if namingMode == "header"
+    if useHeaderNaming
         variantTag = sanitizeFolderToken(editHeaderNames(editIndex), editIndex);
-        folderBaseName = sourceFolderName + "_" + variantTag;
     else
         variantTag = "E" + string(editIndex);
-        folderBaseName = sourceFolderName + "_" + timestamp + "_" + variantTag;
     end
+    folderBaseName = buildFolderBaseName(sourceFolderName, timestamp, variantTag, useHeaderNaming);
 
-    [isCreated, targetFolder, failureMessage] = createVariantFolder( ...
-        fig, selectedFolder, parentFolder, folderBaseName, sourceFolderName, ...
-        sourceMFileName, fileText, columnEntries, updateNotes, namingMode == "header");
-    if ~isCreated
-        errors(end + 1) = variantTag + ": " + failureMessage; %#ok<AGROW>
-        continue;
-    end
-    createdFolders(end + 1) = string(targetFolder); %#ok<AGROW>
+    [createdFolders, errors] = trackVariantCreation( ...
+        createdFolders, errors, variantTag, fig, selectedFolder, parentFolder, ...
+        folderBaseName, sourceFolderName, sourceMFileName, fileText, ...
+        columnEntries, updateNotes, useHeaderNaming);
 end
 
 % If no edit columns are filled but new rows were added, create one baseline variant.
 if isempty(createdFolders) && hasAddedRows
     [defaultEntries, defaultNotes] = buildDefaultAddedRowNotes(entries);
-    if namingMode == "header"
+    if useHeaderNaming
         fallbackTag = "AddedDefaults";
-        folderBaseName = sourceFolderName + "_" + fallbackTag;
     else
         fallbackTag = "E0";
-        folderBaseName = sourceFolderName + "_" + timestamp + "_" + fallbackTag;
     end
-    [isCreated, targetFolder, failureMessage] = createVariantFolder( ...
-        fig, selectedFolder, parentFolder, folderBaseName, sourceFolderName, ...
-        sourceMFileName, fileText, defaultEntries, defaultNotes, namingMode == "header");
-    if isCreated
-        createdFolders(end + 1) = string(targetFolder);
-    else
-        errors(end + 1) = fallbackTag + ": " + failureMessage;
-    end
+    folderBaseName = buildFolderBaseName(sourceFolderName, timestamp, fallbackTag, useHeaderNaming);
+    [createdFolders, errors] = trackVariantCreation( ...
+        createdFolders, errors, fallbackTag, fig, selectedFolder, parentFolder, ...
+        folderBaseName, sourceFolderName, sourceMFileName, fileText, ...
+        defaultEntries, defaultNotes, useHeaderNaming);
 end
 
 if isempty(createdFolders)
@@ -438,6 +429,28 @@ commitNote = sprintf( ...
     'Commit note: Base folder "%s"; auto-generated %d test folder(s): %s; updated %s and XML naming/content.', ...
     char(sourceFolderName), numel(createdFolders), getFolderListText(createdFolders), sourceMFileName);
 fprintf('\n%s\n\n', commitNote);
+end
+
+function folderBaseName = buildFolderBaseName(sourceFolderName, timestamp, variantTag, useHeaderNaming)
+if useHeaderNaming
+    folderBaseName = sourceFolderName + "_" + variantTag;
+else
+    folderBaseName = sourceFolderName + "_" + timestamp + "_" + variantTag;
+end
+end
+
+function [createdFolders, errors] = trackVariantCreation( ...
+    createdFolders, errors, variantTag, fig, selectedFolder, parentFolder, ...
+    folderBaseName, sourceFolderName, sourceMFileName, fileText, ...
+    columnEntries, updateNotes, useHeaderNaming)
+[isCreated, targetFolder, failureMessage] = createVariantFolder( ...
+    fig, selectedFolder, parentFolder, folderBaseName, sourceFolderName, ...
+    sourceMFileName, fileText, columnEntries, updateNotes, useHeaderNaming);
+if isCreated
+    createdFolders(end + 1) = string(targetFolder);
+else
+    errors(end + 1) = variantTag + ": " + failureMessage;
+end
 end
 
 function [isCreated, targetFolder, failureMessage] = createVariantFolder( ...
@@ -527,57 +540,50 @@ end
 
 function [updatedEntries, hasAnyValue, updateNotes] = buildEntriesForEditColumn(entries, columnValues)
 updatedEntries = entries;
-hasAnyValue = false;
 entryCount = numel(entries);
 pendingValues = strings(entryCount, 1);
 changedMask = false(entryCount, 1);
-addedMask = false(entryCount, 1);
+addedMask = reshape(arrayfun(@(e)e.valueStart == 0, entries), [], 1);
 
 for i = 1:entryCount
-    addedMask(i) = (entries(i).valueStart == 0);
     candidateValue = strtrim(string(columnValues{i}));
     if strlength(candidateValue) > 0
         updatedEntries(i).value = char(candidateValue);
-        hasAnyValue = true;
         pendingValues(i) = candidateValue;
         changedMask(i) = true;
     end
 end
 
+hasAnyValue = any(changedMask);
+updateNotes = buildUpdateNotes(entries, pendingValues, changedMask, addedMask);
+end
+
+function [updatedEntries, updateNotes] = buildDefaultAddedRowNotes(entries)
+updatedEntries = entries;
+entryCount = numel(entries);
+addedMask = reshape(arrayfun(@(e)e.valueStart == 0, entries), [], 1);
+updateNotes = buildUpdateNotes(entries, strings(entryCount, 1), false(entryCount, 1), addedMask);
+end
+
+function updateNotes = buildUpdateNotes(entries, pendingValues, changedMask, addedMask)
 noteIdx = find(changedMask | addedMask);
 updateNotes = struct( ...
     'name', cell(numel(noteIdx), 1), ...
     'oldValue', cell(numel(noteIdx), 1), ...
     'newValue', cell(numel(noteIdx), 1), ...
     'isAdded', cell(numel(noteIdx), 1));
+
 for k = 1:numel(noteIdx)
     idx = noteIdx(k);
     updateNotes(k).name = entries(idx).name;
     updateNotes(k).oldValue = char(entries(idx).value);
     if changedMask(idx)
-        updateNotes(k).newValue = char(pendingValues(idx));
+        newValue = pendingValues(idx);
     else
-        updateNotes(k).newValue = char(entries(idx).value);
+        newValue = string(entries(idx).value);
     end
+    updateNotes(k).newValue = char(newValue);
     updateNotes(k).isAdded = addedMask(idx);
-end
-end
-
-function [updatedEntries, updateNotes] = buildDefaultAddedRowNotes(entries)
-updatedEntries = entries;
-addedIdx = find(arrayfun(@(e)e.valueStart == 0, entries));
-updateNotes = struct( ...
-    'name', cell(numel(addedIdx), 1), ...
-    'oldValue', cell(numel(addedIdx), 1), ...
-    'newValue', cell(numel(addedIdx), 1), ...
-    'isAdded', cell(numel(addedIdx), 1));
-
-for i = 1:numel(addedIdx)
-    idx = addedIdx(i);
-    updateNotes(i).name = entries(idx).name;
-    updateNotes(i).oldValue = char(entries(idx).value);
-    updateNotes(i).newValue = char(entries(idx).value);
-    updateNotes(i).isAdded = true;
 end
 end
 
@@ -878,76 +884,16 @@ tf = (ch == newline);
 end
 
 function writeUpdatedVehParam(filePath, rawText, entries, updateNotes)
-nChars = length(rawText);
-
-if isempty(entries)
-    newContent = rawText;
-else
+newContent = rawText;
+if ~isempty(entries)
     hasExistingRange = arrayfun(@(e)e.valueStart > 0 && e.valueEnd >= e.valueStart, entries);
     existingEntries = entries(hasExistingRange);
     appendedEntries = entries(~hasExistingRange);
 
-    if isempty(existingEntries)
-        newContent = rawText;
-    else
-        [~, sortOrder] = sort([existingEntries.valueStart]);
-        existingEntries = existingEntries(sortOrder);
-        insertAfterPos = max([existingEntries.stmtEnd]);
-
-        segments = cell(1, 2 * numel(existingEntries) + 1);
-        segIdx = 1;
-        cursor = 1;
-
-        for i = 1:numel(existingEntries)
-            valueStart = existingEntries(i).valueStart;
-            valueEnd = existingEntries(i).valueEnd;
-            if valueStart < cursor || valueEnd < valueStart
-                error('Invalid assignment range detected while writing Veh_Param.m.');
-            end
-
-            segments{segIdx} = rawText(cursor:valueStart - 1);
-            segIdx = segIdx + 1;
-            segments{segIdx} = char(existingEntries(i).value);
-            segIdx = segIdx + 1;
-            cursor = valueEnd + 1;
-        end
-
-        if isempty(appendedEntries)
-            segments{segIdx} = rawText(cursor:end);
-            newContent = [segments{1:segIdx}];
-        else
-            splitPos = min(max(insertAfterPos, cursor - 1), nChars);
-
-            if splitPos >= cursor
-                segments{segIdx} = rawText(cursor:splitPos);
-            else
-                segments{segIdx} = '';
-            end
-            segIdx = segIdx + 1;
-
-            appendBlock = buildAppendedAssignments(appendedEntries);
-            segments{segIdx} = [newline, newline, appendBlock];
-            segIdx = segIdx + 1;
-
-            if splitPos < nChars
-                segments{segIdx} = rawText(splitPos + 1:end);
-            else
-                segments{segIdx} = '';
-            end
-            newContent = [segments{1:segIdx}];
-        end
-    end
-
-    if ~isempty(appendedEntries) && isempty(existingEntries)
-        appendBlock = buildAppendedAssignments(appendedEntries);
-        if isempty(strtrim(newContent))
-            newContent = appendBlock;
-        else
-            if newContent(end) ~= newline
-                newContent = [newContent, newline];
-            end
-            newContent = [newContent, newline, appendBlock];
-        end
+    if ~isempty(existingEntries)
+        newContent = replaceExistingAssignments(rawText, existingEntries, appendedEntries);
+    elseif ~isempty(appendedEntries)
+        newContent = appendTextBlock(rawText, buildAppendedAssignments(appendedEntries));
     end
 end
 
@@ -963,6 +909,67 @@ cleanupObj = onCleanup(@() fclose(fid));
 fwrite(fid, newContent, 'char');
 end
 
+function newContent = replaceExistingAssignments(rawText, existingEntries, appendedEntries)
+nChars = length(rawText);
+[~, sortOrder] = sort([existingEntries.valueStart]);
+existingEntries = existingEntries(sortOrder);
+insertAfterPos = max([existingEntries.stmtEnd]);
+
+segments = cell(1, 2 * numel(existingEntries) + 3);
+segIdx = 1;
+cursor = 1;
+
+for i = 1:numel(existingEntries)
+    valueStart = existingEntries(i).valueStart;
+    valueEnd = existingEntries(i).valueEnd;
+    if valueStart < cursor || valueEnd < valueStart
+        error('Invalid assignment range detected while writing Veh_Param.m.');
+    end
+
+    segments{segIdx} = rawText(cursor:valueStart - 1);
+    segIdx = segIdx + 1;
+    segments{segIdx} = char(existingEntries(i).value);
+    segIdx = segIdx + 1;
+    cursor = valueEnd + 1;
+end
+
+if isempty(appendedEntries)
+    segments{segIdx} = rawText(cursor:end);
+    newContent = [segments{1:segIdx}];
+    return;
+end
+
+splitPos = min(max(insertAfterPos, cursor - 1), nChars);
+if splitPos >= cursor
+    segments{segIdx} = rawText(cursor:splitPos);
+else
+    segments{segIdx} = '';
+end
+segIdx = segIdx + 1;
+
+segments{segIdx} = [newline, newline, buildAppendedAssignments(appendedEntries)];
+segIdx = segIdx + 1;
+
+if splitPos < nChars
+    segments{segIdx} = rawText(splitPos + 1:end);
+else
+    segments{segIdx} = '';
+end
+newContent = [segments{1:segIdx}];
+end
+
+function outText = appendTextBlock(inText, blockText)
+if isempty(strtrim(inText))
+    outText = blockText;
+    return;
+end
+
+if inText(end) ~= newline
+    inText = [inText, newline];
+end
+outText = [inText, newline, blockText];
+end
+
 function appendBlock = buildAppendedAssignments(appendedEntries)
 lines = strings(numel(appendedEntries) + 2, 1);
 lines(1) = "% Added variables (from GUI Add Row)";
@@ -974,50 +981,27 @@ appendBlock = char(strjoin(lines, newline));
 end
 
 function summaryText = buildAutoUpdateSummary(updateNotes)
-isAddedMask = false(numel(updateNotes), 1);
-for i = 1:numel(updateNotes)
-    isAddedMask(i) = logical(updateNotes(i).isAdded);
-end
-updatedIdx = find(~isAddedMask);
-addedIdx = find(isAddedMask);
-
-summaryLines = strings(numel(updateNotes) + 4, 1);
-lineIdx = 1;
-summaryLines(lineIdx) = "% Auto-update summary (CreateDIVeDatasetVariant)";
-lineIdx = lineIdx + 1;
-
-summaryLines(lineIdx) = "% Updated variables (default -> updated):";
-lineIdx = lineIdx + 1;
-if isempty(updatedIdx)
-    summaryLines(lineIdx) = "%   (none)";
-    lineIdx = lineIdx + 1;
-else
-    for k = 1:numel(updatedIdx)
-        idx = updatedIdx(k);
-        defaultValue = sanitizeSummaryValue(updateNotes(idx).oldValue);
-        updatedValue = sanitizeSummaryValue(updateNotes(idx).newValue);
-        summaryLines(lineIdx) = "%   " + string(updateNotes(idx).name) + ": " + defaultValue + " -> " + updatedValue;
-        lineIdx = lineIdx + 1;
-    end
+isAddedMask = reshape(logical([updateNotes.isAdded]), [], 1);
+summaryLines = ["% Auto-update summary (CreateDIVeDatasetVariant)"; ...
+    buildSummarySection("% Updated variables (default -> updated):", updateNotes(~isAddedMask)); ...
+    buildSummarySection("% Added variables (default -> final):", updateNotes(isAddedMask)); ...
+    "% End auto-update summary"];
+summaryText = char(strjoin(summaryLines, newline));
 end
 
-summaryLines(lineIdx) = "% Added variables (default -> final):";
-lineIdx = lineIdx + 1;
-if isempty(addedIdx)
-    summaryLines(lineIdx) = "%   (none)";
-    lineIdx = lineIdx + 1;
-else
-    for k = 1:numel(addedIdx)
-        idx = addedIdx(k);
-        defaultValue = sanitizeSummaryValue(updateNotes(idx).oldValue);
-        finalValue = sanitizeSummaryValue(updateNotes(idx).newValue);
-        summaryLines(lineIdx) = "%   " + string(updateNotes(idx).name) + ": " + defaultValue + " -> " + finalValue;
-        lineIdx = lineIdx + 1;
-    end
+function sectionLines = buildSummarySection(titleLine, notes)
+if isempty(notes)
+    sectionLines = [titleLine; "%   (none)"];
+    return;
 end
 
-summaryLines(lineIdx) = "% End auto-update summary";
-summaryText = char(strjoin(summaryLines(1:lineIdx), newline));
+sectionLines = strings(numel(notes) + 1, 1);
+sectionLines(1) = titleLine;
+for k = 1:numel(notes)
+    previousValue = sanitizeSummaryValue(notes(k).oldValue);
+    currentValue = sanitizeSummaryValue(notes(k).newValue);
+    sectionLines(k + 1) = "%   " + string(notes(k).name) + ": " + previousValue + " -> " + currentValue;
+end
 end
 
 function cleanValue = sanitizeSummaryValue(rawValue)
