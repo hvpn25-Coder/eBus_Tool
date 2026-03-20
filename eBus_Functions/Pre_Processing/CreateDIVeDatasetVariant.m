@@ -124,7 +124,7 @@ rbHeader.Value = false;
 saveBtn = uibutton( ...
     fig, ...
     'Text', 'Create DIVe Dataset', ...
-    'Position', [620 20 110 30], ...
+    'Position', [570 20 160 30], ...
     'ButtonPushedFcn', @(~, ~)saveChanges(fileText, selectedFolder, selectedMFileName, fig, numEditColumns));
 
 outputPanel = uipanel( ...
@@ -132,17 +132,14 @@ outputPanel = uipanel( ...
     'Title', 'Output', ...
     'Position', [20 5 720 90]);
 
-outputList = uilistbox( ...
+outputLabel = uilabel( ...
     outputPanel, ...
-    'Items', {'No output folders created yet.'}, ...
-    'Value', 'No output folders created yet.', ...
-    'Enable', 'off', ...
-    'Position', [10 28 700 38], ...
-    'ValueChangedFcn', @(src, ~)handleOutputSelection(fig, src.Value));
+    'Text', 'Open the parent folder that contains all created datasets.', ...
+    'Position', [10 34 700 22]);
 
 outputLink = uihyperlink( ...
     outputPanel, ...
-    'Text', 'Open selected folder', ...
+    'Text', 'Open Folder', ...
     'Position', [10 6 200 18], ...
     'Visible', 'off', ...
     'HyperlinkClickedFcn', @(~, ~)openSelectedOutputFolder(fig));
@@ -153,8 +150,7 @@ fig.UserData = struct( ...
     'entries', entries, ...
     'editHeaderNames', string(editColumnHeaders), ...
     'nameMode', "timestamp", ...
-    'outputFolders', strings(0, 1), ...
-    'selectedOutputFolder', "", ...
+    'outputFolderPath', "", ...
     'numEditColumns', numEditColumns, ...
     'ui', struct( ...
         'tbl', tbl, ...
@@ -171,7 +167,7 @@ fig.UserData = struct( ...
         'nameModeGroup', nameModeGroup, ...
         'saveBtn', saveBtn, ...
         'outputPanel', outputPanel, ...
-        'outputList', outputList, ...
+        'outputLabel', outputLabel, ...
         'outputLink', outputLink));
 
 layoutVehParamUI(fig);
@@ -321,7 +317,7 @@ u.newVarField.Position = [newVarX rowY newVarW 22];
 newValLabelX = newVarX + newVarW + 10;
 u.newValLabel.Position = [newValLabelX rowY 85 22];
 
-saveW = 110;
+saveW = 160;
 addRowW = 90;
 saveX = figW - right - saveW;
 addRowX = saveX - 14 - addRowW;
@@ -336,37 +332,13 @@ u.nameModeGroup.Position = [left nameGroupY nameGroupW 50];
 u.outputPanel.Position = [left outputPanelY tableWidth outputPanelH];
 
 panelW = u.outputPanel.Position(3);
-panelH = u.outputPanel.Position(4);
-u.outputList.Position = [10 28 max(160, panelW - 20) max(28, panelH - 52)];
+u.outputLabel.Position = [10 34 max(160, panelW - 20) 22];
 u.outputLink.Position = [10 6 max(160, panelW - 20) 18];
 end
 
-function handleOutputSelection(fig, selectedValue)
+function updateOutputPanel(fig, folderPath)
 state = fig.UserData;
-state.selectedOutputFolder = string(selectedValue);
-fig.UserData = state;
-updateOutputLink(fig);
-end
-
-function updateOutputPanel(fig, folderPaths)
-state = fig.UserData;
-u = state.ui;
-folderPaths = reshape(string(folderPaths), [], 1);
-state.outputFolders = folderPaths;
-
-if isempty(folderPaths)
-    u.outputList.Items = {'No output folders created yet.'};
-    u.outputList.Value = 'No output folders created yet.';
-    u.outputList.Enable = 'off';
-    state.selectedOutputFolder = "";
-else
-    folderItems = cellstr(folderPaths);
-    u.outputList.Items = folderItems;
-    u.outputList.Value = folderItems{end};
-    u.outputList.Enable = 'on';
-    state.selectedOutputFolder = folderPaths(end);
-end
-
+state.outputFolderPath = string(folderPath);
 fig.UserData = state;
 updateOutputLink(fig);
 end
@@ -374,20 +346,20 @@ end
 function updateOutputLink(fig)
 state = fig.UserData;
 u = state.ui;
-if strlength(state.selectedOutputFolder) == 0
+if strlength(state.outputFolderPath) == 0
     u.outputLink.Visible = 'off';
     u.outputLink.Tooltip = '';
     return;
 end
 
-u.outputLink.Text = "Open selected folder";
-u.outputLink.Tooltip = char(state.selectedOutputFolder);
+u.outputLink.Text = "Open Folder";
+u.outputLink.Tooltip = char(state.outputFolderPath);
 u.outputLink.Visible = 'on';
 end
 
 function openSelectedOutputFolder(fig)
 state = fig.UserData;
-folderPath = char(state.selectedOutputFolder);
+folderPath = char(state.outputFolderPath);
 if isempty(folderPath)
     return;
 end
@@ -522,7 +494,7 @@ if isempty(createdFolders)
     return;
 end
 
-updateOutputPanel(fig, createdFolders);
+updateOutputPanel(fig, parentFolder);
 
 messageLines = "Created folder(s):" + newline + strjoin(createdFolders, newline);
 if ~isempty(errors)
