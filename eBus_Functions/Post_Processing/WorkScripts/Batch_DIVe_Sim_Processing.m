@@ -5,27 +5,19 @@
 clearvars;
 clc;
 
-selectedPath = uigetdir(pwd, 'Select folder containing MAT files');
-if isequal(selectedPath, 0)
+selectedFolders = selectMatFolders(pwd);
+if isempty(selectedFolders)
     fprintf('No folder selected. Script stopped.\n');
     return;
 end
 
-matItems = getMatFilesRecursive(selectedPath);
-if isempty(matItems)
-    fprintf('No MAT files found in: %s or its nested folders.\n', selectedPath);
+[matFilePaths, relativeMatPaths] = collectMatFilesFromFolders(selectedFolders);
+if isempty(matFilePaths)
+    fprintf('No MAT files found in the selected folder(s) or their nested folders.\n');
     return;
 end
 
-sortKeys = arrayfun(@(x) lower(fullfile(x.folder, x.name)), matItems, 'UniformOutput', false);
-[~, sortIdx] = sort(sortKeys);
-matItems = matItems(sortIdx);
-matFilePaths = cell(numel(matItems), 1);
-relativeMatPaths = strings(numel(matItems), 1);
-for iFile = 1:numel(matItems)
-    matFilePaths{iFile} = fullfile(matItems(iFile).folder, matItems(iFile).name);
-    relativeMatPaths(iFile) = makeRelativePath(selectedPath, matFilePaths{iFile});
-end
+resultsBaseDir = getResultsBaseDir(selectedFolders);
 
 thisScriptDir = fileparts(mfilename('fullpath'));
 kpiBankPath = fullfile(thisScriptDir, '..', 'KPIs_Plots', 'eBus_KPIs_Plots_Bank.xlsx');
@@ -88,7 +80,7 @@ columnNames = matlab.lang.makeUniqueStrings(columnNames, {'KPI'});
 printProcessedMatFileInfo(matFilePaths, relativeMatPaths, fileLabels);
 
 fprintf('Creating results folder...\n');
-resultsDir = createDiveResultsFolder(selectedPath);
+resultsDir = createDiveResultsFolder(resultsBaseDir);
 [~, resultsFolderName] = fileparts(resultsDir);
 kpiResultFileName = [resultsFolderName '.xlsx'];
 ensurePerMatOutputFolders(resultsDir, fileLabels);
@@ -247,6 +239,107 @@ for i = 1:numel(items)
 end
 end
 
+function selectedFolders = selectMatFolders(startDir)
+selectedFolders = {};
+if nargin < 1 || strlength(string(startDir)) == 0 || ~isfolder(startDir)
+    startDir = pwd;
+end
+
+if usejava('awt')
+    try
+        chooser = javax.swing.JFileChooser(java.io.File(char(string(startDir))));
+        chooser.setDialogTitle('Select one or more folders containing MAT files');
+        chooser.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
+        chooser.setMultiSelectionEnabled(true);
+
+        status = chooser.showOpenDialog([]);
+        if status == javax.swing.JFileChooser.APPROVE_OPTION
+            javaFiles = chooser.getSelectedFiles();
+            selectedFolders = cell(numel(javaFiles), 1);
+            for i = 1:numel(javaFiles)
+                selectedFolders{i} = char(javaFiles(i).getAbsolutePath());
+            end
+        end
+    catch
+        selectedFolders = {};
+    end
+end
+
+if isempty(selectedFolders)
+    selectedPath = uigetdir(char(string(startDir)), 'Select folder containing MAT files');
+    if isequal(selectedPath, 0)
+        return;
+    end
+    selectedFolders = {char(string(selectedPath))};
+end
+
+selectedFolders = unique(selectedFolders, 'stable');
+end
+
+function [matFilePaths, relativeMatPaths] = collectMatFilesFromFolders(selectedFolders)
+matFilePaths = {};
+relativeMatPaths = strings(0, 1);
+if isempty(selectedFolders)
+    return;
+end
+
+for iFolder = 1:numel(selectedFolders)
+    rootDir = char(string(selectedFolders{iFolder}));
+    matItems = getMatFilesRecursive(rootDir);
+    if isempty(matItems)
+        continue;
+    end
+
+    [~, rootLabel] = fileparts(rootDir);
+    if strlength(string(rootLabel)) == 0
+        rootLabel = string(rootDir);
+    else
+        rootLabel = string(rootLabel);
+    end
+
+    for iFile = 1:numel(matItems)
+        fullPath = fullfile(matItems(iFile).folder, matItems(iFile).name);
+        relPath = makeRelativePath(rootDir, fullPath);
+        displayPath = rootLabel;
+        if strlength(relPath) > 0
+            displayPath = string(fullfile(char(rootLabel), char(relPath)));
+        end
+
+        matFilePaths{end + 1, 1} = fullPath; %#ok<AGROW>
+        relativeMatPaths(end + 1, 1) = string(displayPath); %#ok<AGROW>
+    end
+end
+
+if isempty(matFilePaths)
+    return;
+end
+
+[uniquePaths, uniqueIdx] = unique(lower(string(matFilePaths)), 'stable');
+matFilePaths = matFilePaths(uniqueIdx);
+relativeMatPaths = relativeMatPaths(uniqueIdx);
+
+[~, sortIdx] = sort(uniquePaths);
+matFilePaths = matFilePaths(sortIdx);
+relativeMatPaths = relativeMatPaths(sortIdx);
+end
+
+function resultsBaseDir = getResultsBaseDir(selectedFolders)
+if isempty(selectedFolders)
+    resultsBaseDir = pwd;
+    return;
+end
+
+if isscalar(selectedFolders)
+    resultsBaseDir = char(string(selectedFolders{1}));
+    return;
+end
+
+resultsBaseDir = findCommonParentFolder(selectedFolders);
+if strlength(string(resultsBaseDir)) == 0 || ~isfolder(resultsBaseDir)
+    resultsBaseDir = pwd;
+end
+end
+
 function matItems = getMatFilesRecursive(rootDir)
 matItems = dir(fullfile(rootDir, '**', '*.mat'));
 if isempty(matItems)
@@ -268,6 +361,28 @@ elseif strcmpi(filePath, rootDir)
     relPath = string(filePath);
 else
     relPath = string(filePath);
+end
+end
+
+function commonDir = findCommonParentFolder(paths)
+commonDir = char(string(paths{1}));
+for i = 2:numel(paths)
+    thisPath = char(string(paths{i}));
+    while ~isempty(commonDir)
+        if strcmpi(thisPath, commonDir) || startsWith(thisPath, [commonDir filesep], 'IgnoreCase', ispc)
+            break;
+        end
+        nextDir = fileparts(commonDir);
+        if strcmp(nextDir, commonDir)
+            commonDir = '';
+            break;
+        end
+        commonDir = nextDir;
+    end
+
+    if isempty(commonDir)
+        break;
+    end
 end
 end
 
