@@ -574,6 +574,7 @@ try
 
     usedRange = getExcelRange(ws, 1, 1, rowCount, colCount);
     usedRange.Columns.AutoFit;
+    setComparisonColumnWidths(ws, comparisonCells);
     ws.Activate;
     excelApp.ActiveWindow.SplitColumn = 0;
     excelApp.ActiveWindow.SplitRow = 1;
@@ -646,6 +647,25 @@ if nargin < 5
 end
 rangeAddress = sprintf('%s:%s', xlA1(startRow, startCol), xlA1(endRow, endCol));
 rangeObj = get(sheetObj, 'Range', rangeAddress);
+end
+
+function setComparisonColumnWidths(sheetObj, comparisonCells)
+colCount = size(comparisonCells, 2);
+if colCount < 3
+    return;
+end
+
+for iCol = 1:colCount
+    headerValue = "";
+    if ~isempty(comparisonCells{1, iCol}) && (ischar(comparisonCells{1, iCol}) || isstring(comparisonCells{1, iCol}))
+        headerValue = string(comparisonCells{1, iCol});
+    end
+
+    if startsWith(headerValue, "Var_") || iCol == colCount - 2 || iCol == colCount - 1
+        columnRange = getExcelRange(sheetObj, 1, iCol, size(comparisonCells, 1), iCol);
+        columnRange.ColumnWidth = 40;
+    end
+end
 end
 
 function addr = xlA1(rowIdx, colIdx)
