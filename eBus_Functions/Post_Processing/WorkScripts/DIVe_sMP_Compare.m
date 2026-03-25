@@ -574,6 +574,10 @@ try
 
     usedRange = getExcelRange(ws, 1, 1, rowCount, colCount);
     usedRange.Columns.AutoFit;
+    ws.Activate;
+    excelApp.ActiveWindow.SplitColumn = 0;
+    excelApp.ActiveWindow.SplitRow = 1;
+    excelApp.ActiveWindow.FreezePanes = true;
 
     if rowCount >= 2
         statusCol = colCount;
