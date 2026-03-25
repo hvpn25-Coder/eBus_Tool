@@ -39,6 +39,9 @@ writecell(comparisonCells, outputWorkbookPath, 'Sheet', 'sMP_Compare', 'Range', 
 updateStatusBox(statusBox, 0.94, 'Applying Excel formatting...');
 formatComparisonWorkbook(outputWorkbookPath, comparisonCells);
 updateStatusBox(statusBox, 1.00, 'Comparison complete.');
+pause(0.3);
+closeStatusBox(statusBox);
+statusCleanup = [];
 
 assignin('base', 'diveSmpComparisonTable', comparisonTable);
 assignin('base', 'diveSmpComparisonCells', comparisonCells);
