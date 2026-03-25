@@ -17,18 +17,28 @@ fprintf('Selected MAT File 1: %s\n', char(filePathA));
 fprintf('Selected MAT File 2: %s\n', char(filePathB));
 fprintf('\n');
 
+statusBox = initStatusBox('Preparing sMP comparison...');
+statusCleanup = onCleanup(@()closeStatusBox(statusBox));
+
 fprintf('Loading sMP.phys, sMP.ctrl, sMP.human and sMP.bdry from the selected MAT files...\n');
+updateStatusBox(statusBox, 0.10, 'Loading first MAT file...');
 matDataA = loadSmpData(filePathA);
+updateStatusBox(statusBox, 0.25, 'Loading second MAT file...');
 matDataB = loadSmpData(filePathB);
 
-comparisonCells = buildComparisonCells(matDataA, matDataB);
+updateStatusBox(statusBox, 0.35, 'Comparing sMP branches...');
+comparisonCells = buildComparisonCells(matDataA, matDataB, statusBox);
 comparisonTable = cell2table(comparisonCells(2:end, :), ...
     'VariableNames', buildComparisonTableVariableNames(comparisonCells(1, :)));
 
+updateStatusBox(statusBox, 0.80, 'Creating results folder...');
 resultsDir = createSmpResultsFolder(filePathA);
 outputWorkbookPath = buildWorkbookPath(resultsDir, filePathA, filePathB);
+updateStatusBox(statusBox, 0.88, 'Writing Excel report...');
 writecell(comparisonCells, outputWorkbookPath, 'Sheet', 'sMP_Compare', 'Range', 'A1');
+updateStatusBox(statusBox, 0.94, 'Applying Excel formatting...');
 formatComparisonWorkbook(outputWorkbookPath, comparisonCells);
+updateStatusBox(statusBox, 1.00, 'Comparison complete.');
 
 assignin('base', 'diveSmpComparisonTable', comparisonTable);
 assignin('base', 'diveSmpComparisonCells', comparisonCells);
@@ -37,6 +47,74 @@ assignin('base', 'diveSmpComparisonResultsDir', resultsDir);
 
 fprintf('\nExcel report location: %s\n', outputWorkbookPath);
 printWorkbookLink(outputWorkbookPath);
+
+function h = initStatusBox(initialMessage)
+h = [];
+if ~usejava('desktop')
+    return;
+end
+
+stale = findall(0, 'Type', 'figure', 'Tag', 'ExecutionStatusWaitbar');
+for iFig = 1:numel(stale)
+    try
+        delete(stale(iFig));
+    catch
+    end
+end
+
+try
+    h = waitbar(0, normalizeStatusMessage(initialMessage), ...
+        'Name', 'DIVe sMP Compare', ...
+        'CreateCancelBtn', '');
+    set(h, 'Tag', 'ExecutionStatusWaitbar');
+    configureWaitbarTextInterpreter(h);
+catch
+    h = [];
+end
+end
+
+function updateStatusBox(h, fraction, messageText)
+if isempty(h) || ~ishandle(h)
+    return;
+end
+
+f = max(0, min(1, double(fraction)));
+try
+    waitbar(f, h, normalizeStatusMessage(messageText));
+    configureWaitbarTextInterpreter(h);
+    drawnow;
+catch
+end
+end
+
+function closeStatusBox(h)
+if isempty(h) || ~ishandle(h)
+    return;
+end
+try
+    delete(h);
+catch
+end
+end
+
+function out = normalizeStatusMessage(messageText)
+out = char(string(messageText));
+if strlength(string(out)) == 0
+    out = 'Working...';
+end
+end
+
+function configureWaitbarTextInterpreter(h)
+if isempty(h) || ~ishandle(h)
+    return;
+end
+
+try
+    txt = findall(h, 'Type', 'Text');
+    set(txt, 'Interpreter', 'none');
+catch
+end
+end
 
 function selection = selectMatFilesFromGui(startPath)
 selection = struct('FilePathA', "", 'FilePathB', "", 'Cancelled', true);
@@ -201,7 +279,7 @@ else
 end
 end
 
-function comparisonCells = buildComparisonCells(matDataA, matDataB)
+function comparisonCells = buildComparisonCells(matDataA, matDataB, statusBox)
 requiredSections = getRequiredSmpSections();
 mapA = containers.Map('KeyType', 'char', 'ValueType', 'any');
 mapB = containers.Map('KeyType', 'char', 'ValueType', 'any');
@@ -245,6 +323,7 @@ comparisonCells(1, maxPathDepth + 1:end) = { ...
     char(matDataB.FileLabel), ...
     'Status'};
 
+progressStep = max(1, ceil(numel(allPaths) / 100));
 for iPath = 1:numel(allPaths)
     currentPath = char(allPaths(iPath));
     [hasValueA, valueA] = getMapValue(mapA, currentPath);
@@ -257,6 +336,12 @@ for iPath = 1:numel(allPaths)
     comparisonCells{iPath + 1, maxPathDepth + 1} = formatValueForExcel(hasValueA, valueA);
     comparisonCells{iPath + 1, maxPathDepth + 2} = formatValueForExcel(hasValueB, valueB);
     comparisonCells{iPath + 1, maxPathDepth + 3} = hasValueA && hasValueB && isequaln(valueA, valueB);
+
+    if iPath == 1 || iPath == numel(allPaths) || mod(iPath, progressStep) == 0
+        progressValue = 0.35 + 0.40 * iPath / max(1, numel(allPaths));
+        updateStatusBox(statusBox, progressValue, ...
+            sprintf('Comparing variable %d of %d...', iPath, numel(allPaths)));
+    end
 end
 end
 
