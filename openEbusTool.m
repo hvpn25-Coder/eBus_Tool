@@ -9,16 +9,20 @@ cd(repoRoot);
 
 scriptsDir = fullfile(repoRoot, 'eBus_Functions', 'Post_Processing', 'WorkScripts');
 utilityDir = fullfile(repoRoot, 'eBus_Functions', 'Pre_Processing');
+datasetVariantDir = fullfile(utilityDir, 'CreateDIVeDatasetVariant');
 script1 = fullfile(scriptsDir, 'DIVe_KPI_Plots_Check.m');
 script2 = fullfile(scriptsDir, 'Batch_DIVe_Sim_Processing.m');
 script3 = fullfile(scriptsDir, 'eBus_Release_Check.m');
 script5 = fullfile(scriptsDir, 'DIVe_sMP_Compare.m');
-script4 = fullfile(utilityDir, 'CreateDIVeDatasetVariant.m');
+script4 = fullfile(datasetVariantDir, 'CreateDIVeDatasetVariant.m');
 if ~localIsFolderOnPath(scriptsDir)
     addpath(scriptsDir);
 end
 if ~localIsFolderOnPath(utilityDir)
     addpath(utilityDir);
+end
+if ~localIsFolderOnPath(datasetVariantDir)
+    addpath(datasetVariantDir);
 end
 
 bannerWidth = 118;
