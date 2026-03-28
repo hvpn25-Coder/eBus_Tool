@@ -6,6 +6,10 @@ if nargin < 3 || isempty(config)
 end
 
 [referenceTime, referenceSource, referenceMethod] = localSelectReferenceTime(signalStore, rawData, config);
+[referenceTime, timeWasSanitized] = localSanitizeReferenceTime(referenceTime);
+if timeWasSanitized
+    referenceMethod = string(referenceMethod) + "|Sanitized";
+end
 nRef = numel(referenceTime);
 
 signalFields = fieldnames(signalStore);
@@ -122,4 +126,34 @@ if any(contains(signalText, string(config.SignalFallback.DiscreteTokenList)))
 else
     method = 'linear';
 end
+end
+
+function [timeVector, wasSanitized] = localSanitizeReferenceTime(timeVector)
+wasSanitized = false;
+timeVector = double(timeVector(:));
+
+if isempty(timeVector)
+    timeVector = (0:1).';
+    wasSanitized = true;
+    return;
+end
+
+isUsable = all(isfinite(timeVector)) && all(diff(timeVector) >= 0);
+if isUsable
+    return;
+end
+
+dt = diff(timeVector);
+dt = dt(isfinite(dt) & dt > 0);
+if isempty(dt)
+    sampleStep = 1;
+else
+    sampleStep = median(dt);
+    if ~isfinite(sampleStep) || sampleStep <= 0
+        sampleStep = 1;
+    end
+end
+
+timeVector = (0:sampleStep:sampleStep * (numel(timeVector) - 1)).';
+wasSanitized = true;
 end
