@@ -25,10 +25,10 @@ rangePenalty = analysisData.Derived.tripDistance_km * auxShare / 100;
 
 rows = RCA_AddKPI(rows, 'Auxiliary Energy', auxEnergy, 'kWh', 'Energy', 'Auxiliary Load', 'aux_curr + aux_volt', 'Derived from auxiliary current and voltage.');
 rows = RCA_AddKPI(rows, 'Average Auxiliary Power', mean(auxPwr, 'omitnan'), 'kW', 'Efficiency', 'Auxiliary Load', 'aux_curr + aux_volt', 'Average over the full trip.');
-rows = RCA_AddKPI(rows, 'Auxiliary Energy Share', auxShare, '%', 'Efficiency', 'Auxiliary Load', 'auxiliary power + battery power', 'Share of positive battery energy attributed to auxiliaries.');
+rows = RCA_AddKPI(rows, 'Auxiliary Energy Share', auxShare, '%', 'Efficiency', 'Auxiliary Load', 'auxiliary power + battery power', 'Share of discharge-positive battery energy attributed to auxiliaries.');
 rows = RCA_AddKPI(rows, 'Stationary Auxiliary Energy Share', stationaryShare, '%', 'Operation', 'Auxiliary Load', 'auxiliary power + vehicle speed', 'Fraction of auxiliary energy consumed while vehicle speed is near zero.');
 rows = RCA_AddKPI(rows, 'Approximate Distance Penalty from Auxiliary Share', rangePenalty, 'km', 'Range', 'Auxiliary Load', 'trip distance + auxiliary share', 'Approximation assumes overall trip behaviour remains similar.');
-summary(end + 1) = sprintf('Auxiliaries consume %.2f kWh, equal to %.1f%% of positive battery energy.', auxEnergy, auxShare);
+summary(end + 1) = sprintf('Auxiliaries consume %.2f kWh, equal to %.1f%% of discharge-positive battery energy.', auxEnergy, auxShare);
 
 recs = strings(0, 1);
 evidence = strings(0, 1);
@@ -51,7 +51,7 @@ grid on;
 
 subplot(2, 1, 2);
 plot(t, 100 * auxPwr ./ max(max(battPwr, 0), eps), 'Color', config.Plot.Colors.Warning, 'LineWidth', config.Plot.LineWidth);
-title('Auxiliary Share of Instantaneous Positive Battery Power');
+title('Auxiliary Share of Instantaneous Battery Discharge Power');
 xlabel('Time (s)');
 ylabel('Share (%)');
 grid on;

@@ -27,7 +27,7 @@ lossEnergy = trapz(t, max(lossPwr, 0)) / 3600;
 efficiency = mechPwr ./ max(elecPwr, eps);
 efficiency(~tractiveMask) = NaN;
 
-rows = RCA_AddKPI(rows, 'Electrical Traction Energy', elecEnergy, 'kWh', 'Energy', 'Electric Drive', 'emot1_pwr + emot2_pwr', 'Integrated positive electrical power.');
+rows = RCA_AddKPI(rows, 'Electrical Traction Energy', elecEnergy, 'kWh', 'Energy', 'Electric Drive', 'emot1_pwr + emot2_pwr', 'Integrated drive-positive electrical power after workbook sign normalization.');
 rows = RCA_AddKPI(rows, 'Mechanical Traction Energy', mechEnergy, 'kWh', 'Energy', 'Electric Drive', 'torque + speed or motor power basis', 'Integrated positive mechanical output.');
 rows = RCA_AddKPI(rows, 'Average Tractive Electric Drive Efficiency', mean(efficiency, 'omitnan') * 100, '%', 'Efficiency', 'Electric Drive', 'motor electrical + mechanical power', 'Only positive tractive samples are included.');
 rows = RCA_AddKPI(rows, 'Electric Drive Loss Energy', lossEnergy, 'kWh', 'Losses', 'Electric Drive', 'emot1_loss_pwr + emot2_loss_pwr', 'Integrated positive loss power.');

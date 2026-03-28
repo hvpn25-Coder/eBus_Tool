@@ -43,10 +43,15 @@ for iSeg = 1:height(segments)
     gbxLossShare = 100 * gbxLoss / max(battDischarge, eps);
     rollingLoadShare = 100 * trapz(segTime, max(derived.rollingResistanceForce_N(idx), 0) .* max(derived.vehVel_mps(idx), 0) / 1000) / 3600 / max(battDischarge, eps);
     aeroLoadShare = 100 * trapz(segTime, max(derived.aeroDragForce_N(idx), 0) .* max(derived.vehVel_mps(idx), 0) / 1000) / 3600 / max(battDischarge, eps);
+    dischargePower = max(derived.batteryPower_kW(idx), 0);
+    chargePower = max(-derived.batteryPower_kW(idx), 0);
+    dischargeCurrent = max(derived.batteryCurrent_A(idx), 0);
+    chargeCurrent = max(-derived.batteryCurrent_A(idx), 0);
     batteryLimitUse = 100 * mean( ...
-        derived.batteryPower_kW(idx) > config.Thresholds.LimitUsageFraction .* derived.battDischargePowerLimit_kW(idx) | ...
-        abs(min(derived.batteryPower_kW(idx), 0)) > config.Thresholds.LimitUsageFraction .* derived.battChargePowerLimit_kW(idx) | ...
-        abs(derived.batteryCurrent_A(idx)) > config.Thresholds.LimitUsageFraction .* max(abs(derived.battChargeCurrentLimit_A(idx)), abs(derived.battDischargeCurrentLimit_A(idx))), ...
+        dischargePower > config.Thresholds.LimitUsageFraction .* derived.battDischargePowerLimit_kW(idx) | ...
+        chargePower > config.Thresholds.LimitUsageFraction .* derived.battChargePowerLimit_kW(idx) | ...
+        dischargeCurrent > config.Thresholds.LimitUsageFraction .* derived.battDischargeCurrentLimit_A(idx) | ...
+        chargeCurrent > config.Thresholds.LimitUsageFraction .* derived.battChargeCurrentLimit_A(idx), ...
         'omitnan');
     regenRecovery = 100 * battRegen / max(battRegen + fricEnergy, eps);
     meanSoc = mean(derived.batterySOC_pct(idx), 'omitnan');
@@ -75,10 +80,10 @@ for iSeg = 1:height(segments)
         NaN, NaN, false, false, false, "Unclassified", ""}; %#ok<AGROW>
 
     segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Distance', segDistance, 'km', 'Segment', 'Vehicle', 'veh_pos or integrated veh_vel', 'Segment distance.');
-    segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Net Energy Intensity', whPerKm, 'Wh/km', 'Segment', 'Vehicle', 'batt_pwr + segment distance', 'Segment net electrical intensity.');
+    segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Net Energy Intensity', whPerKm, 'Wh/km', 'Segment', 'Vehicle', 'batt_pwr + segment distance', 'Segment net electrical intensity using discharge-positive battery convention.');
     segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Tracking MAE', trackingMae, 'km/h', 'Segment', 'Vehicle', 'veh_des_vel + veh_vel', 'Segment tracking error.');
-    segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Auxiliary Energy Share', auxShare, '%', 'Segment', 'Vehicle', 'auxiliary power + battery power', 'Auxiliary share in this segment.');
-    segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Loss Share', lossShare, '%', 'Segment', 'Vehicle', 'loss powers + battery power', 'Integrated loss share in this segment.');
+    segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Auxiliary Energy Share', auxShare, '%', 'Segment', 'Vehicle', 'auxiliary power + battery power', 'Auxiliary share relative to discharge-positive battery energy in this segment.');
+    segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Loss Share', lossShare, '%', 'Segment', 'Vehicle', 'loss powers + battery power', 'Integrated loss share relative to discharge-positive battery energy in this segment.');
     segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Gear Shift Rate', shiftRate, 'shifts/km', 'Segment', 'Transmission', 'gr_num + segment distance', 'Gear change density inside the segment.');
 end
 
@@ -109,7 +114,7 @@ segmentSummary.PrimaryIssueTag = repmat("Mixed", height(segmentSummary), 1);
 segmentSummary.PrimaryIssueTag(segmentSummary.IsPoorEfficiency & ~segmentSummary.IsPoorPerformance) = "Efficiency";
 segmentSummary.PrimaryIssueTag(~segmentSummary.IsPoorEfficiency & segmentSummary.IsPoorPerformance) = "Performance";
 segmentSummary.PrimaryIssueTag(segmentSummary.IsHighLoss) = "HighLoss";
-segmentSummary.StatusNote = repmat("Segment summary computed from available signals.", height(segmentSummary), 1);
+segmentSummary.StatusNote = repmat("Segment summary computed from available signals with workbook sign conventions applied.", height(segmentSummary), 1);
 
 segmentKPI = cell2table(segmentRows, 'VariableNames', {'SegmentID', 'KPIName', 'Value', 'Unit', ...
     'Category', 'Subsystem', 'SignalBasis', 'StatusNote'});

@@ -20,17 +20,19 @@ if all(isnan(chgPwrLim)) && all(isnan(disPwrLim)) && all(isnan(chgCurLim)) && al
     return;
 end
 
-dischargeLimitUse = battPwr ./ max(disPwrLim, eps);
-chargeLimitUse = abs(min(battPwr, 0)) ./ max(chgPwrLim, eps);
-currentLimitUse = abs(battCurr) ./ max(max(abs(chgCurLim), abs(disCurLim)), eps);
+dischargeLimitUse = max(battPwr, 0) ./ max(disPwrLim, eps);
+chargeLimitUse = max(-battPwr, 0) ./ max(chgPwrLim, eps);
+dischargeCurrentLimitUse = max(battCurr, 0) ./ max(disCurLim, eps);
+chargeCurrentLimitUse = max(-battCurr, 0) ./ max(chgCurLim, eps);
+currentLimitUse = max(dischargeCurrentLimitUse, chargeCurrentLimitUse);
 
 rows = RCA_AddKPI(rows, 'Discharge Power Limit Utilization Mean', mean(dischargeLimitUse, 'omitnan') * 100, '%', 'Performance', 'Battery Management System', 'batt_pwr + batt_dischrg_pwr_lim', 'Limit utilization indicates power-headroom consumption.');
-rows = RCA_AddKPI(rows, 'Charge Power Limit Utilization Mean', mean(chargeLimitUse, 'omitnan') * 100, '%', 'Efficiency', 'Battery Management System', 'batt_pwr + batt_chrg_pwr_lim', 'High value can suppress regen headroom.');
-rows = RCA_AddKPI(rows, 'Current Limit Utilization Mean', mean(currentLimitUse, 'omitnan') * 100, '%', 'Performance', 'Battery Management System', 'batt_curr + current limits', 'Uses the larger magnitude of charge/discharge current limits.');
+rows = RCA_AddKPI(rows, 'Charge Power Limit Utilization Mean', mean(chargeLimitUse, 'omitnan') * 100, '%', 'Efficiency', 'Battery Management System', 'batt_pwr + batt_chrg_pwr_lim', 'High value can suppress regen headroom under workbook sign convention.');
+rows = RCA_AddKPI(rows, 'Current Limit Utilization Mean', mean(currentLimitUse, 'omitnan') * 100, '%', 'Performance', 'Battery Management System', 'batt_curr + current limits', 'Uses the larger of discharge-positive or charge-positive current limit utilization.');
 rows = RCA_AddKPI(rows, 'Time Near Any Battery Limit', ...
     100 * mean(dischargeLimitUse > config.Thresholds.LimitUsageFraction | chargeLimitUse > config.Thresholds.LimitUsageFraction | currentLimitUse > config.Thresholds.LimitUsageFraction, 'omitnan'), ...
     '%', 'Performance', 'Battery Management System', 'battery power/current and limits', 'Near-limit threshold is configurable.');
-summary(end + 1) = sprintf('BMS limits are active or nearly active for %.1f%% of samples.', ...
+summary(end + 1) = sprintf('BMS limits are active or nearly active for %.1f%% of samples. RCA sign convention uses discharge positive and charge negative for battery power/current.', ...
     100 * mean(dischargeLimitUse > config.Thresholds.LimitUsageFraction | chargeLimitUse > config.Thresholds.LimitUsageFraction | currentLimitUse > config.Thresholds.LimitUsageFraction, 'omitnan'));
 
 recs = strings(0, 1);
@@ -49,7 +51,7 @@ subplot(2, 1, 1);
 plot(t, battPwr, 'Color', config.Plot.Colors.Battery, 'LineWidth', config.Plot.LineWidth); hold on;
 plot(t, disPwrLim, '--', 'Color', config.Plot.Colors.Warning, 'LineWidth', config.Plot.LineWidth);
 plot(t, -chgPwrLim, '--', 'Color', config.Plot.Colors.Auxiliary, 'LineWidth', config.Plot.LineWidth);
-title('Battery Power Versus Power Limits');
+title('Battery Power Versus Power Limits (Discharge +, Charge -)');
 ylabel('Power (kW)');
 legend({'Battery power', 'Discharge limit', 'Charge limit'}, 'Location', 'best');
 grid on;
@@ -58,7 +60,7 @@ subplot(2, 1, 2);
 plot(t, battCurr, 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth); hold on;
 plot(t, disCurLim, '--', 'Color', config.Plot.Colors.Warning, 'LineWidth', config.Plot.LineWidth);
 plot(t, -chgCurLim, '--', 'Color', config.Plot.Colors.Auxiliary, 'LineWidth', config.Plot.LineWidth);
-title('Battery Current Versus Current Limits');
+title('Battery Current Versus Current Limits (Discharge +, Charge -)');
 xlabel('Time (s)');
 ylabel('Current (A)');
 legend({'Battery current', 'Discharge current limit', 'Charge current limit'}, 'Location', 'best');

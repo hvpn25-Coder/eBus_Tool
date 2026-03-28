@@ -405,6 +405,9 @@ entry.Name = string(row.VariableName);
 entry.Description = string(row.Description);
 entry.Unit = string(row.Unit);
 entry.Subsystem = string(row.Subsystem);
+entry.PositiveMeaning = localOptionalRowString(row, 'PositiveMeaning');
+entry.NegativeMeaning = localOptionalRowString(row, 'NegativeMeaning');
+entry.SignConventionText = localOptionalRowString(row, 'SignConventionText');
 entry.Status = "Missing";
 entry.Note = "";
 entry.Data = [];
@@ -415,6 +418,20 @@ entry.ExpressionUsed = "";
 entry.EntryType = string(entryType);
 entry.Approximate = false;
 entry.Confidence = "Low";
+end
+
+function value = localOptionalRowString(row, fieldName)
+value = "";
+try
+    if ismember(fieldName, row.Properties.VariableNames)
+        value = string(row.(fieldName));
+        if ~isempty(value)
+            value = value(1);
+        end
+    end
+catch
+    value = "";
+end
 end
 
 function tf = localIsTimeSignalRow(row)

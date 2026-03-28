@@ -34,9 +34,9 @@ subplot(3, 1, 1);
 plot(t, derived.batteryPower_kW, 'Color', config.Plot.Colors.Battery, 'LineWidth', config.Plot.LineWidth); hold on;
 plot(t, derived.auxiliaryPower_kW, '--', 'Color', config.Plot.Colors.Auxiliary, 'LineWidth', config.Plot.LineWidth);
 plot(t, derived.motorLossPower_kW + derived.gearboxLossPower_kW + derived.batteryLossPower_kW, ':', 'Color', config.Plot.Colors.Warning, 'LineWidth', config.Plot.LineWidth);
-title('Vehicle Power Overview');
+title('Vehicle Power Overview (Battery Discharge +, Charge -)');
 ylabel('Power (kW)');
-legend({'Battery power', 'Auxiliary power', 'Logged loss power'}, 'Location', 'best');
+legend({'Battery power (RCA sign)', 'Auxiliary power', 'Logged loss power'}, 'Location', 'best');
 grid on;
 
 subplot(3, 1, 2);
@@ -59,7 +59,7 @@ title('Integrated Loss and Auxiliary Breakdown');
 ylabel('Energy (kWh)');
 grid on;
 plotFiles(end + 1) = string(RCA_SaveFigure(fig, outputPaths.FiguresVehicle, 'Vehicle_Energy_Overview', config));
-plotNotes(end + 1) = "Energy overview plot summarizes the electrical burden, cumulative energy usage, and logged loss contributors.";
+plotNotes(end + 1) = "Energy overview plot summarizes the electrical burden, cumulative energy usage, and logged loss contributors. Battery power is normalized to discharge-positive sign from workbook metadata.";
 close(fig);
 
 fig = figure('Color', 'w', 'Position', config.Plot.FigurePosition);
@@ -163,7 +163,7 @@ for iDash = 1:numDashboards
     plot(t(idx), derived.batteryPower_kW(idx), 'Color', config.Plot.Colors.Battery, 'LineWidth', config.Plot.LineWidth); hold on;
     plot(t(idx), derived.auxiliaryPower_kW(idx), '--', 'Color', config.Plot.Colors.Auxiliary, 'LineWidth', config.Plot.LineWidth);
     ylabel('Power (kW)');
-    legend({'Battery', 'Auxiliary'}, 'Location', 'best');
+    legend({'Battery (RCA sign)', 'Auxiliary'}, 'Location', 'best');
     grid on;
 
     subplot(4, 1, 3);

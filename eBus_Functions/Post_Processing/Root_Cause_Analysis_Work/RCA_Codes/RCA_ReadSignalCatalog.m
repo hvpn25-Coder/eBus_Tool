@@ -75,7 +75,7 @@ unitCol = localFindColumn(headerKeys, ["unit"]);
 variableCol = localFindColumn(headerKeys, ["variable", "name"]);
 evaluationCols = localFindEvaluationColumns(headerKeys, mode);
 
-rows = cell(0, 6);
+rows = cell(0, 9);
 currentSubsystem = "";
 for iRow = headerRow + 1:size(raw, 1)
     row = raw(iRow, :);
@@ -103,14 +103,19 @@ for iRow = headerRow + 1:size(raw, 1)
         variableName = matlab.lang.makeValidName(char(description));
     end
 
-    rows(end + 1, :) = {localPrettySubsystem(currentSubsystem), description, unit, variableName, evaluations, string(sheetName)};
+    [positiveMeaning, negativeMeaning, signConventionText] = localParseSignConvention(description);
+    rows(end + 1, :) = {localPrettySubsystem(currentSubsystem), description, unit, variableName, evaluations, ...
+        string(sheetName), positiveMeaning, negativeMeaning, signConventionText};
 end
 
 if isempty(rows)
     catalog = table(strings(0, 1), strings(0, 1), strings(0, 1), strings(0, 1), cell(0, 1), strings(0, 1), ...
-        'VariableNames', {'Subsystem', 'Description', 'Unit', 'VariableName', 'Evaluations', 'SourceSheet'});
+        strings(0, 1), strings(0, 1), strings(0, 1), ...
+        'VariableNames', {'Subsystem', 'Description', 'Unit', 'VariableName', 'Evaluations', 'SourceSheet', ...
+        'PositiveMeaning', 'NegativeMeaning', 'SignConventionText'});
 else
-    catalog = cell2table(rows, 'VariableNames', {'Subsystem', 'Description', 'Unit', 'VariableName', 'Evaluations', 'SourceSheet'});
+    catalog = cell2table(rows, 'VariableNames', {'Subsystem', 'Description', 'Unit', 'VariableName', 'Evaluations', 'SourceSheet', ...
+        'PositiveMeaning', 'NegativeMeaning', 'SignConventionText'});
 end
 end
 
@@ -293,5 +298,67 @@ for iRow = 1:height(signalCatalog)
     hasSecondUnit = any(strcmp(unitKey, ["s", "sec", "secs", "second", "seconds"]));
 
     isTimeSignal(iRow) = hasTimeText && (hasSecondUnit || strcmp(descriptionKey, "time"));
+end
+end
+
+function [positiveMeaning, negativeMeaning, signConventionText] = localParseSignConvention(description)
+descriptionText = lower(string(description));
+positiveMeaning = localExtractSignMeaning(descriptionText, 'positive');
+negativeMeaning = localExtractSignMeaning(descriptionText, 'negative');
+
+if strlength(positiveMeaning) == 0 && strlength(negativeMeaning) == 0
+    signConventionText = "";
+else
+    signConventionText = "Positive=" + positiveMeaning + "; Negative=" + negativeMeaning;
+end
+end
+
+function meaning = localExtractSignMeaning(descriptionText, polarityToken)
+meaning = "";
+
+switch lower(string(polarityToken))
+    case "positive"
+        if contains(descriptionText, "positive for")
+            tokenText = extractAfter(descriptionText, "positive for");
+        else
+            tokenText = "";
+        end
+    case "negative"
+        if contains(descriptionText, "negative for")
+            tokenText = extractAfter(descriptionText, "negative for");
+        else
+            tokenText = "";
+        end
+    otherwise
+        tokenText = "";
+end
+
+if strlength(tokenText) == 0
+    return;
+end
+
+stopTokens = [" and ", ")", ",", ";"];
+stopPos = strlength(tokenText) + 1;
+for iToken = 1:numel(stopTokens)
+    pos = strfind(char(tokenText), char(stopTokens(iToken)));
+    if ~isempty(pos)
+        stopPos = min(stopPos, pos(1));
+    end
+end
+tokenText = strtrim(extractBefore(tokenText, stopPos));
+tokenText = regexprep(tokenText, '\s+', ' ');
+
+if contains(tokenText, "discharg")
+    meaning = "discharge";
+elseif contains(tokenText, "charg")
+    meaning = "charge";
+elseif contains(tokenText, "driv")
+    meaning = "driving";
+elseif contains(tokenText, "recuper") || contains(tokenText, "regen")
+    meaning = "regeneration";
+elseif contains(tokenText, "brak")
+    meaning = "braking";
+else
+    meaning = strtrim(tokenText);
 end
 end

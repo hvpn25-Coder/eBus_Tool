@@ -94,6 +94,14 @@ torqueActual = localCombineSum(emot1Trq, emot2Trq);
 torqueDemand = localCombineSum(emot1Dem, emot2Dem);
 torquePositiveLimit = localCombineSum(emot1Max, emot2Max);
 torqueNegativeLimit = localCombineSum(emot1Min, emot2Min);
+battPowerDischargePositive = localApplySignConvention(signals, {'batt_pwr'}, battPwr, 'discharge', 'charge');
+battCurrentDischargePositive = localApplySignConvention(signals, {'batt_curr'}, battCurr, 'discharge', 'charge');
+motorElecDrivePositive = localApplySignConvention(signals, {'emot1_pwr', 'emot2_pwr'}, motorElecPwr, 'driving', 'regeneration');
+torqueActualDrivePositive = localApplySignConvention(signals, {'emot1_act_trq', 'emot2_act_trq'}, torqueActual, 'driving', 'regeneration');
+torqueDemandDrivePositive = localApplySignConvention(signals, {'emot1_dem_trq', 'emot2_dem_trq'}, torqueDemand, 'driving', 'regeneration');
+torquePositiveLimitDrivePositive = localApplySignConvention(signals, {'emot1_max_av_trq', 'emot2_max_av_trq'}, torquePositiveLimit, 'driving', 'regeneration');
+torqueNegativeLimitDrivePositive = localApplySignConvention(signals, {'emot1_min_av_trq', 'emot2_min_av_trq'}, torqueNegativeLimit, 'driving', 'regeneration');
+gearboxOutputTorqueDrivePositive = localApplySignConvention(signals, {'gbx_out_trq'}, gbxOutTrq, 'driving', 'regeneration');
 
 vehVelMps = vehVel / 3.6;
 tractionPower = tractionForce .* vehVelMps / 1000;
@@ -115,18 +123,25 @@ derived.ambientTemp_C = ambientTemp;
 derived.accPedal_pct = accPdl;
 derived.brkPedal_pct = brkPdl;
 
-derived.torqueDemandTotal_Nm = torqueDemand;
-derived.torqueActualTotal_Nm = torqueActual;
-derived.torquePositiveLimit_Nm = torquePositiveLimit;
-derived.torqueNegativeLimit_Nm = torqueNegativeLimit;
+derived.torqueDemandRaw_Nm = torqueDemand;
+derived.torqueActualRaw_Nm = torqueActual;
+derived.torquePositiveLimitRaw_Nm = torquePositiveLimit;
+derived.torqueNegativeLimitRaw_Nm = torqueNegativeLimit;
+derived.torqueDemandTotal_Nm = torqueDemandDrivePositive;
+derived.torqueActualTotal_Nm = torqueActualDrivePositive;
+derived.torquePositiveLimit_Nm = torquePositiveLimitDrivePositive;
+derived.torqueNegativeLimit_Nm = torqueNegativeLimitDrivePositive;
 derived.motorSpeed_rpm = motorSpeedRpm;
-derived.motorElectricalPower_kW = motorElecPwr;
-derived.motorMechanicalPower_kW = motorMechPwr;
+derived.motorElectricalPowerRaw_kW = motorElecPwr;
+derived.motorElectricalPower_kW = motorElecDrivePositive;
+derived.motorMechanicalPowerRaw_kW = motorMechPwr;
+derived.motorMechanicalPower_kW = localApplySignConvention(signals, {'emot1_act_trq', 'emot2_act_trq'}, motorMechPwr, 'driving', 'regeneration');
 derived.motorLossPower_kW = motorLossPwr;
 
 derived.gearNumber = grNum;
 derived.gearRatio = grRatio;
-derived.gearboxOutputTorque_Nm = gbxOutTrq;
+derived.gearboxOutputTorqueRaw_Nm = gbxOutTrq;
+derived.gearboxOutputTorque_Nm = gearboxOutputTorqueDrivePositive;
 derived.gearboxOutputSpeed_rads = gbxOutSpd;
 derived.gearboxLossPower_kW = gbxLoss;
 
@@ -141,12 +156,22 @@ derived.gradeForce_N = gradeForce;
 derived.aeroDragForce_N = aeroForce;
 derived.resistivePower_kW = resistivePower;
 
-derived.batteryCurrent_A = battCurr;
+derived.batteryCurrentRaw_A = battCurr;
+derived.batteryCurrent_A = battCurrentDischargePositive;
 derived.batteryVoltage_V = battVolt;
-derived.batteryPower_kW = battPwr;
+derived.batteryPowerRaw_kW = battPwr;
+derived.batteryPower_kW = battPowerDischargePositive;
 derived.batteryLossPower_kW = battLoss;
 derived.batterySOC_pct = battSoc;
 derived.batteryTemp_C = battTemp;
+derived.batteryDischargePowerPositive_kW = max(battPowerDischargePositive, 0);
+derived.batteryChargePowerPositive_kW = max(-battPowerDischargePositive, 0);
+derived.batteryDischargeCurrentPositive_A = max(battCurrentDischargePositive, 0);
+derived.batteryChargeCurrentPositive_A = max(-battCurrentDischargePositive, 0);
+derived.motorDriveElectricalPowerPositive_kW = max(motorElecDrivePositive, 0);
+derived.motorRegenElectricalPowerPositive_kW = max(-motorElecDrivePositive, 0);
+derived.motorDriveMechanicalPowerPositive_kW = max(derived.motorMechanicalPower_kW, 0);
+derived.motorRegenMechanicalPowerPositive_kW = max(-derived.motorMechanicalPower_kW, 0);
 
 derived.battChargeCurrentLimit_A = battChgCurrLim;
 derived.battDischargeCurrentLimit_A = battDisCurrLim;
@@ -168,6 +193,7 @@ derived.wheelRadius_m = localScalar(specs, 'VDy_mec_rWheelDriven');
 
 derived.motorSpeedRef_rpm = localSpecVector(specs, 'ED_emot_nTab_1stD');
 derived.motorTorqueRef_Nm = localSpecVector(specs, 'ED_emot_trqMaxRow');
+derived.SignConventions = localBuildSignConventionSummary(signals);
 end
 
 function vec = localVector(store, signalName, n)
@@ -230,4 +256,75 @@ maskB = ~isnan(b);
 out(maskA & ~maskB) = a(maskA & ~maskB);
 out(~maskA & maskB) = b(~maskA & maskB);
 out(maskA & maskB) = (a(maskA & maskB) + b(maskA & maskB)) / 2;
+end
+
+function data = localApplySignConvention(store, signalNames, data, desiredPositiveMeaning, desiredNegativeMeaning)
+factor = localFindSignFactor(store, signalNames, desiredPositiveMeaning, desiredNegativeMeaning);
+data = factor .* data;
+end
+
+function factor = localFindSignFactor(store, signalNames, desiredPositiveMeaning, desiredNegativeMeaning)
+factor = 1;
+desiredPositiveMeaning = localNormalizeMeaning(desiredPositiveMeaning);
+desiredNegativeMeaning = localNormalizeMeaning(desiredNegativeMeaning);
+
+for iSignal = 1:numel(signalNames)
+    signal = RCA_GetSignalData(store, signalNames{iSignal});
+    positiveMeaning = localNormalizeMeaning(localGetSignalField(signal, 'PositiveMeaning'));
+    negativeMeaning = localNormalizeMeaning(localGetSignalField(signal, 'NegativeMeaning'));
+
+    if strlength(positiveMeaning) == 0 && strlength(negativeMeaning) == 0
+        continue;
+    end
+
+    if positiveMeaning == desiredPositiveMeaning && negativeMeaning == desiredNegativeMeaning
+        factor = 1;
+        return;
+    end
+    if positiveMeaning == desiredNegativeMeaning && negativeMeaning == desiredPositiveMeaning
+        factor = -1;
+        return;
+    end
+end
+end
+
+function value = localGetSignalField(signal, fieldName)
+value = "";
+if isstruct(signal) && isfield(signal, fieldName)
+    value = string(signal.(fieldName));
+    if ~isempty(value)
+        value = value(1);
+    end
+end
+end
+
+function meaning = localNormalizeMeaning(value)
+textValue = lower(string(value));
+if contains(textValue, "discharg")
+    meaning = "discharge";
+elseif contains(textValue, "charg")
+    meaning = "charge";
+elseif contains(textValue, "driv")
+    meaning = "driving";
+elseif contains(textValue, "regen") || contains(textValue, "recuper")
+    meaning = "regeneration";
+elseif contains(textValue, "brak")
+    meaning = "braking";
+else
+    meaning = strtrim(textValue);
+end
+end
+
+function signSummary = localBuildSignConventionSummary(store)
+signSummary = struct();
+signSummary.BatteryPower = localBuildSignalConvention(store, 'batt_pwr');
+signSummary.BatteryCurrent = localBuildSignalConvention(store, 'batt_curr');
+signSummary.MotorElectricalPower = localBuildSignalConvention(store, 'emot1_pwr');
+signSummary.MotorTorque = localBuildSignalConvention(store, 'emot1_act_trq');
+end
+
+function convention = localBuildSignalConvention(store, signalName)
+signal = RCA_GetSignalData(store, signalName);
+convention = struct('SignalName', string(signalName), 'PositiveMeaning', localGetSignalField(signal, 'PositiveMeaning'), ...
+    'NegativeMeaning', localGetSignalField(signal, 'NegativeMeaning'), 'Description', localGetSignalField(signal, 'Description'));
 end

@@ -21,11 +21,11 @@ regenEnergy = trapz(t, max(-battPwr, 0)) / 3600;
 brakingOpportunity = fricEnergy + regenEnergy;
 regenRecovery = 100 * regenEnergy / max(brakingOpportunity, eps);
 rows = RCA_AddKPI(rows, 'Friction Brake Energy', fricEnergy, 'kWh', 'Losses', 'Pneumatic Brake System', 'fric_brk_pwr', 'Integrated positive friction brake power.');
-rows = RCA_AddKPI(rows, 'Approximate Regen Recovery Fraction', regenRecovery, '%', 'Efficiency', 'Pneumatic Brake System', 'fric_brk_pwr + batt_pwr', 'Approximated from electrical recovery and friction dissipation.');
+rows = RCA_AddKPI(rows, 'Approximate Regen Recovery Fraction', regenRecovery, '%', 'Efficiency', 'Pneumatic Brake System', 'fric_brk_pwr + batt_pwr', 'Approximated from electrical recovery and friction dissipation after workbook sign normalization.');
 rows = RCA_AddKPI(rows, 'Brake Power Above Regen Opportunity Threshold', ...
     mean(fricPwr > config.Thresholds.RegenOpportunityBrakePower_kW & vehSpeed > config.Thresholds.StopSpeed_kmh, 'omitnan') * 100, ...
     '%', 'Efficiency', 'Pneumatic Brake System', 'fric_brk_pwr + veh_vel', 'Heuristic threshold from RCA_Config.');
-summary(end + 1) = sprintf('Brake system dissipates %.2f kWh as friction heat and recovers about %.1f%% of the observable braking opportunity.', ...
+summary(end + 1) = sprintf('Brake system dissipates %.2f kWh as friction heat and recovers about %.1f%% of the observable braking opportunity. Recovered battery power uses workbook charge/discharge sign convention.', ...
     fricEnergy, regenRecovery);
 
 recs = strings(0, 1);

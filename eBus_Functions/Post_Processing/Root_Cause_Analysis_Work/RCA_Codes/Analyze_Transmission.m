@@ -43,7 +43,7 @@ energyByGear = NaN(size(uniqueGears));
 for iGear = 1:numel(uniqueGears)
     mask = gear == uniqueGears(iGear);
     energyByGear(iGear) = trapz(t(mask), max(motorElec(mask), 0)) / 3600;
-    effByGearRows(end + 1) = sprintf('Gear %.0f electrical energy usage is %.2f kWh.', uniqueGears(iGear), energyByGear(iGear));
+    effByGearRows(end + 1) = sprintf('Gear %.0f drive-positive electrical energy usage is %.2f kWh.', uniqueGears(iGear), energyByGear(iGear));
 end
 summary = [summary; effByGearRows];
 

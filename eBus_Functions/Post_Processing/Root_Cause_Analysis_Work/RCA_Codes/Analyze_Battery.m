@@ -24,15 +24,15 @@ regenEnergy = trapz(t, max(-battPwr, 0)) / 3600;
 socDrop = max(soc(1) - soc(end), 0);
 voltSagPct = 100 * (max(volt, [], 'omitnan') - min(volt, [], 'omitnan')) / max(max(volt, [], 'omitnan'), eps);
 
-rows = RCA_AddKPI(rows, 'Battery Discharge Energy', dischargeEnergy, 'kWh', 'Energy', 'Battery', 'batt_pwr', 'Integrated positive battery power.');
-rows = RCA_AddKPI(rows, 'Battery Regen Energy', regenEnergy, 'kWh', 'Energy', 'Battery', 'batt_pwr', 'Integrated negative battery power magnitude.');
+rows = RCA_AddKPI(rows, 'Battery Discharge Energy', dischargeEnergy, 'kWh', 'Energy', 'Battery', 'batt_pwr', 'Integrated discharge-positive battery power after workbook sign normalization.');
+rows = RCA_AddKPI(rows, 'Battery Regen Energy', regenEnergy, 'kWh', 'Energy', 'Battery', 'batt_pwr', 'Integrated charging/recovered battery power after workbook sign normalization.');
 rows = RCA_AddKPI(rows, 'Battery SoC Drop', socDrop, '%', 'Operation', 'Battery', 'batt_soc', 'Trip SoC consumption.');
 rows = RCA_AddKPI(rows, 'Mean Battery Voltage', mean(volt, 'omitnan'), 'V', 'Operation', 'Battery', 'batt_volt', 'Average terminal voltage.');
 rows = RCA_AddKPI(rows, 'Battery Voltage Sag Range', voltSagPct, '%', 'Performance', 'Battery', 'batt_volt', 'Voltage span across the trip as a simple sag indicator.');
-rows = RCA_AddKPI(rows, 'Mean Battery Current', mean(curr, 'omitnan'), 'A', 'Operation', 'Battery', 'batt_curr', 'Average signed current.');
+rows = RCA_AddKPI(rows, 'Mean Battery Current', mean(curr, 'omitnan'), 'A', 'Operation', 'Battery', 'batt_curr', 'Average battery current in RCA convention: discharge positive, charge negative.');
 rows = RCA_AddKPI(rows, 'Battery Loss Energy', trapz(t, max(loss, 0)) / 3600, 'kWh', 'Losses', 'Battery', 'batt_loss_pwr', 'Integrated positive battery loss power.');
 rows = RCA_AddKPI(rows, 'Battery Temperature Range', max(temp, [], 'omitnan') - min(temp, [], 'omitnan'), 'degC', 'Operation', 'Battery', 'batt_temp', 'Temperature spread across the trip.');
-summary(end + 1) = sprintf('Battery summary: %.2f kWh discharged, %.2f kWh recovered, %.1f%% SoC drop.', ...
+summary(end + 1) = sprintf('Battery summary: %.2f kWh discharged, %.2f kWh recovered, %.1f%% SoC drop. RCA sign convention uses discharge positive and charge negative based on workbook metadata.', ...
     dischargeEnergy, regenEnergy, socDrop);
 
 recs = strings(0, 1);
@@ -59,14 +59,14 @@ grid on;
 
 subplot(4, 1, 2);
 plot(t, battPwr, 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth);
-title('Battery Power');
+title('Battery Power (Discharge +, Charge -)');
 ylabel('Power (kW)');
 grid on;
 
 subplot(4, 1, 3);
 plot(t, volt, 'Color', config.Plot.Colors.Demand, 'LineWidth', config.Plot.LineWidth); hold on;
 plot(t, curr, '--', 'Color', config.Plot.Colors.Warning, 'LineWidth', config.Plot.LineWidth);
-title('Battery Voltage and Current');
+title('Battery Voltage and Current (Discharge Current +)');
 ylabel('V / A');
 legend({'Voltage', 'Current'}, 'Location', 'best');
 grid on;

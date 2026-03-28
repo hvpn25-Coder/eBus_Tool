@@ -26,9 +26,9 @@ end
 dischargeEnergy = trapz(t, max(derived.batteryPower_kW, 0)) / 3600;
 regenEnergy = trapz(t, max(-derived.batteryPower_kW, 0)) / 3600;
 netEnergy = dischargeEnergy - regenEnergy;
-rows = RCA_AddKPI(rows, 'Battery Discharge Energy', dischargeEnergy, 'kWh', 'Energy', 'Vehicle', 'batt_pwr', 'Integrated positive battery power.');
-rows = RCA_AddKPI(rows, 'Battery Regen Energy', regenEnergy, 'kWh', 'Energy', 'Vehicle', 'batt_pwr', 'Integrated recovered battery power.');
-rows = RCA_AddKPI(rows, 'Net Battery Energy', netEnergy, 'kWh', 'Energy', 'Vehicle', 'batt_pwr', 'Discharge minus recovered electrical energy.');
+rows = RCA_AddKPI(rows, 'Battery Discharge Energy', dischargeEnergy, 'kWh', 'Energy', 'Vehicle', 'batt_pwr', 'Integrated discharge-positive battery power after applying workbook sign convention.');
+rows = RCA_AddKPI(rows, 'Battery Regen Energy', regenEnergy, 'kWh', 'Energy', 'Vehicle', 'batt_pwr', 'Integrated charging/recovered battery power after applying workbook sign convention.');
+rows = RCA_AddKPI(rows, 'Net Battery Energy', netEnergy, 'kWh', 'Energy', 'Vehicle', 'batt_pwr', 'Discharge minus recovered electrical energy using workbook sign convention.');
 
 if tripDistance > config.General.MinimumDistanceForWhpkm_km
     rows = RCA_AddKPI(rows, 'Energy Intensity', netEnergy * 1000 / tripDistance, 'Wh/km', 'Efficiency', 'Vehicle', 'batt_pwr + trip distance', 'Net electrical energy per kilometre.');
@@ -47,9 +47,9 @@ rows = RCA_AddKPI(rows, 'Battery Loss Energy', battLossEnergy, 'kWh', 'Losses', 
 rows = RCA_AddKPI(rows, 'Motor/Inverter Loss Energy', motorLossEnergy, 'kWh', 'Losses', 'Vehicle', 'emot loss power', 'Electric drive loss integral.');
 rows = RCA_AddKPI(rows, 'Transmission Loss Energy', gbxLossEnergy, 'kWh', 'Losses', 'Vehicle', 'gbx_pwr_loss', 'Gearbox loss integral.');
 rows = RCA_AddKPI(rows, 'Friction Brake Energy', fricEnergy, 'kWh', 'Losses', 'Vehicle', 'fric_brk_pwr', 'Friction dissipation integral.');
-rows = RCA_AddKPI(rows, 'Battery-to-Wheel Efficiency', 100 * tractionEnergy / max(dischargeEnergy, eps), '%', 'Efficiency', 'Vehicle', 'batt_pwr + traction power', 'Mechanical wheel output over electrical battery discharge.');
-rows = RCA_AddKPI(rows, 'Auxiliary Energy Share', 100 * auxEnergy / max(dischargeEnergy, eps), '%', 'Efficiency', 'Vehicle', 'auxiliary power + battery power', 'Auxiliary share of positive battery discharge energy.');
-rows = RCA_AddKPI(rows, 'Approximate Regen Recovery Fraction', 100 * regenEnergy / max(regenEnergy + fricEnergy, eps), '%', 'Efficiency', 'Vehicle', 'batt_pwr + fric_brk_pwr', 'Recovered electrical braking divided by recovered plus friction braking energy.');
+rows = RCA_AddKPI(rows, 'Battery-to-Wheel Efficiency', 100 * tractionEnergy / max(dischargeEnergy, eps), '%', 'Efficiency', 'Vehicle', 'batt_pwr + traction power', 'Mechanical wheel output over discharge-positive battery energy.');
+rows = RCA_AddKPI(rows, 'Auxiliary Energy Share', 100 * auxEnergy / max(dischargeEnergy, eps), '%', 'Efficiency', 'Vehicle', 'auxiliary power + battery power', 'Auxiliary share of discharge-positive battery energy.');
+rows = RCA_AddKPI(rows, 'Approximate Regen Recovery Fraction', 100 * regenEnergy / max(regenEnergy + fricEnergy, eps), '%', 'Efficiency', 'Vehicle', 'batt_pwr + fric_brk_pwr', 'Recovered electrical braking divided by recovered plus friction braking energy after sign normalization.');
 
 gear = derived.gearNumber;
 changeIdx = find(abs(diff(gear)) > 0 & ~isnan(diff(gear))) + 1;
