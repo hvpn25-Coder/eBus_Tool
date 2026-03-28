@@ -6,6 +6,7 @@ t = analysisData.Derived.time_s;
 gear = analysisData.Derived.gearNumber;
 vehSpeed = analysisData.Derived.vehVel_kmh;
 motorSpd = analysisData.Derived.motorSpeed_rpm;
+motorSpdAbs = abs(motorSpd);
 gbxLoss = analysisData.Derived.gearboxLossPower_kW;
 motorElec = analysisData.Derived.motorElectricalPower_kW;
 
@@ -42,7 +43,7 @@ uniqueGears = unique(gear(~isnan(gear)));
 energyByGear = NaN(size(uniqueGears));
 for iGear = 1:numel(uniqueGears)
     mask = gear == uniqueGears(iGear);
-    energyByGear(iGear) = trapz(t(mask), max(motorElec(mask), 0)) / 3600;
+    energyByGear(iGear) = RCA_TrapzFinite(t(mask), max(motorElec(mask), 0)) / 3600;
     effByGearRows(end + 1) = sprintf('Gear %.0f drive-positive electrical energy usage is %.2f kWh.', uniqueGears(iGear), energyByGear(iGear));
 end
 summary = [summary; effByGearRows];
@@ -71,12 +72,12 @@ ylabel('Gear');
 grid on;
 
 subplot(2, 2, 2);
-scatter(vehSpeed, gear, 12, motorSpd, 'filled');
+scatter(vehSpeed, gear, 12, motorSpdAbs, 'filled');
 title('Gear Versus Vehicle Speed');
 xlabel('Vehicle Speed (km/h)');
 ylabel('Gear');
 cb = colorbar;
-cb.Label.String = 'Motor speed (rpm)';
+cb.Label.String = 'Motor speed magnitude (rpm)';
 grid on;
 
 subplot(2, 2, 3);

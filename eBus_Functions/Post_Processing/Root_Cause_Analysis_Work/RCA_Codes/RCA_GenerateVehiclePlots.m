@@ -34,27 +34,30 @@ subplot(3, 1, 1);
 plot(t, derived.batteryPower_kW, 'Color', config.Plot.Colors.Battery, 'LineWidth', config.Plot.LineWidth); hold on;
 plot(t, derived.auxiliaryPower_kW, '--', 'Color', config.Plot.Colors.Auxiliary, 'LineWidth', config.Plot.LineWidth);
 plot(t, derived.motorLossPower_kW + derived.gearboxLossPower_kW + derived.batteryLossPower_kW, ':', 'Color', config.Plot.Colors.Warning, 'LineWidth', config.Plot.LineWidth);
+plot(t, zeros(size(t)), '-', 'Color', config.Plot.Colors.Neutral, 'LineWidth', 0.8);
 title('Vehicle Power Overview (Battery Discharge +, Charge -)');
 ylabel('Power (kW)');
-legend({'Battery power (RCA sign)', 'Auxiliary power', 'Logged loss power'}, 'Location', 'best');
+legend({'Battery power (RCA sign)', 'Auxiliary power', 'Logged loss power', 'Zero line'}, 'Location', 'best');
 grid on;
 
 subplot(3, 1, 2);
-plot(t, cumtrapz(t, max(derived.batteryPower_kW, 0)) / 3600, 'Color', config.Plot.Colors.Battery, 'LineWidth', config.Plot.LineWidth); hold on;
-plot(t, cumtrapz(t, max(derived.auxiliaryPower_kW, 0)) / 3600, '--', 'Color', config.Plot.Colors.Auxiliary, 'LineWidth', config.Plot.LineWidth);
-plot(t, cumtrapz(t, max(derived.tractionPower_kW, 0)) / 3600, ':', 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth);
+plot(t, RCA_CumtrapzFinite(t, max(derived.batteryPower_kW, 0)) / 3600, 'Color', config.Plot.Colors.Battery, 'LineWidth', config.Plot.LineWidth); hold on;
+plot(t, RCA_CumtrapzFinite(t, max(-derived.batteryPower_kW, 0)) / 3600, '--', 'Color', config.Plot.Colors.Warning, 'LineWidth', config.Plot.LineWidth);
+plot(t, RCA_CumtrapzFinite(t, derived.batteryPower_kW) / 3600, '-.', 'Color', config.Plot.Colors.Neutral, 'LineWidth', config.Plot.LineWidth);
+plot(t, RCA_CumtrapzFinite(t, max(derived.auxiliaryPower_kW, 0)) / 3600, '--', 'Color', config.Plot.Colors.Auxiliary, 'LineWidth', config.Plot.LineWidth);
+plot(t, RCA_CumtrapzFinite(t, max(derived.tractionPower_kW, 0)) / 3600, ':', 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth);
 title('Cumulative Energy');
 ylabel('Energy (kWh)');
-legend({'Battery discharge', 'Auxiliary', 'Traction'}, 'Location', 'best');
+legend({'Battery discharge', 'Battery recovery', 'Net battery energy', 'Auxiliary', 'Traction'}, 'Location', 'best');
 grid on;
 
 subplot(3, 1, 3);
 bar(categorical({'Battery loss', 'Motor loss', 'Transmission loss', 'Friction brake', 'Auxiliary'}), ...
-    [trapz(t, max(derived.batteryLossPower_kW, 0)) / 3600, ...
-    trapz(t, max(derived.motorLossPower_kW, 0)) / 3600, ...
-    trapz(t, max(derived.gearboxLossPower_kW, 0)) / 3600, ...
-    trapz(t, max(derived.frictionBrakePower_kW, 0)) / 3600, ...
-    trapz(t, max(derived.auxiliaryPower_kW, 0)) / 3600], 'FaceColor', config.Plot.Colors.Vehicle);
+    [RCA_TrapzFinite(t, max(derived.batteryLossPower_kW, 0)) / 3600, ...
+    RCA_TrapzFinite(t, max(derived.motorLossPower_kW, 0)) / 3600, ...
+    RCA_TrapzFinite(t, max(derived.gearboxLossPower_kW, 0)) / 3600, ...
+    RCA_TrapzFinite(t, max(derived.frictionBrakePower_kW, 0)) / 3600, ...
+    RCA_TrapzFinite(t, max(derived.auxiliaryPower_kW, 0)) / 3600], 'FaceColor', config.Plot.Colors.Vehicle);
 title('Integrated Loss and Auxiliary Breakdown');
 ylabel('Energy (kWh)');
 grid on;
@@ -71,12 +74,12 @@ ylabel('Gear');
 grid on;
 
 subplot(2, 2, 2);
-scatter(derived.vehVel_kmh, derived.gearNumber, 12, derived.motorSpeed_rpm, 'filled');
+scatter(derived.vehVel_kmh, derived.gearNumber, 12, abs(derived.motorSpeed_rpm), 'filled');
 title('Gear vs Vehicle Speed');
 xlabel('Vehicle Speed (km/h)');
 ylabel('Gear');
 cb = colorbar;
-cb.Label.String = 'Motor speed (rpm)';
+cb.Label.String = 'Motor speed magnitude (rpm)';
 grid on;
 
 subplot(2, 2, 3);
@@ -87,7 +90,7 @@ ylabel('Samples');
 grid on;
 
 subplot(2, 2, 4);
-scatter(derived.motorSpeed_rpm, derived.torqueActualTotal_Nm, 12, derived.gearNumber, 'filled');
+scatter(abs(derived.motorSpeed_rpm), derived.torqueActualTotal_Nm, 12, derived.gearNumber, 'filled');
 title('Motor Operating Region Colored by Gear');
 xlabel('Motor speed (rpm)');
 ylabel('Motor torque (Nm)');
@@ -123,19 +126,22 @@ if ~isempty(analysisData.SegmentSummary)
 end
 
 if ~isempty(analysisData.RootCauseRanking)
-    topCauses = groupsummary(analysisData.RootCauseRanking, 'CauseName', 'sum', 'Contribution_pct');
-    topCauses = sortrows(topCauses, 'sum_Contribution_pct', 'descend');
-    cumulative = cumsum(topCauses.sum_Contribution_pct) / max(sum(topCauses.sum_Contribution_pct), eps) * 100;
+    [causeNames, contributionSums] = localAggregateCauseContributions(analysisData.RootCauseRanking);
+    cumulative = cumsum(contributionSums) / max(sum(contributionSums), eps) * 100;
 
     fig = figure('Color', 'w', 'Position', config.Plot.FigurePosition);
+    causeIndex = 1:numel(causeNames);
     yyaxis left;
-    bar(categorical(topCauses.CauseName), topCauses.sum_Contribution_pct, 'FaceColor', config.Plot.Colors.Warning);
+    bar(causeIndex, contributionSums, 'FaceColor', config.Plot.Colors.Warning);
     ylabel('Aggregated contribution (%)');
     yyaxis right;
-    plot(1:height(topCauses), cumulative, '-o', 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth);
+    plot(causeIndex, cumulative, '-o', 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth);
     ylabel('Cumulative contribution (%)');
     title('Pareto-Style Root Cause Ranking');
     xlabel('Cause');
+    xticks(causeIndex);
+    xticklabels(cellstr(causeNames));
+    xtickangle(30);
     grid on;
     plotFiles(end + 1) = string(RCA_SaveFigure(fig, outputPaths.FiguresVehicle, 'Vehicle_RootCause_Pareto', config));
     plotNotes(end + 1) = "Pareto-style plot ranks the recurring physical drivers across the worst trip segments.";
@@ -168,7 +174,7 @@ for iDash = 1:numDashboards
 
     subplot(4, 1, 3);
     stairs(t(idx), derived.gearNumber(idx), 'Color', config.Plot.Colors.Gear, 'LineWidth', config.Plot.LineWidth); hold on;
-    plot(t(idx), derived.motorSpeed_rpm(idx) / max(max(derived.motorSpeed_rpm, [], 'omitnan'), 1) * max(max(derived.gearNumber, [], 'omitnan'), 1), '--', ...
+    plot(t(idx), abs(derived.motorSpeed_rpm(idx)) / max(max(abs(derived.motorSpeed_rpm), [], 'omitnan'), 1) * max(max(derived.gearNumber, [], 'omitnan'), 1), '--', ...
         'Color', config.Plot.Colors.Motor, 'LineWidth', config.Plot.LineWidth);
     ylabel('Gear / norm speed');
     legend({'Gear', 'Normalized motor speed'}, 'Location', 'best');
@@ -188,4 +194,15 @@ for iDash = 1:numDashboards
 end
 
 plotResults = struct('Files', plotFiles, 'Notes', plotNotes);
+end
+
+function [causeNames, contributionSums] = localAggregateCauseContributions(rootCauseRanking)
+causeNames = unique(rootCauseRanking.CauseName, 'stable');
+contributionSums = zeros(numel(causeNames), 1);
+for iCause = 1:numel(causeNames)
+    mask = rootCauseRanking.CauseName == causeNames(iCause);
+    contributionSums(iCause) = sum(rootCauseRanking.Contribution_pct(mask), 'omitnan');
+end
+[contributionSums, order] = sort(contributionSums, 'descend');
+causeNames = causeNames(order);
 end

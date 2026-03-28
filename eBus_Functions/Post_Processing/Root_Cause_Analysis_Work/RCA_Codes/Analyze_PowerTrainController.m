@@ -20,10 +20,11 @@ end
 torqueErr = demand - actual;
 rows = RCA_AddKPI(rows, 'Torque Demand Mean', mean(demand, 'omitnan'), 'Nm', 'Operation', 'Power Train Controller', 'emot1_dem_trq + emot2_dem_trq', 'Complete if both demand signals are available.');
 rows = RCA_AddKPI(rows, 'Torque Tracking MAE', mean(abs(torqueErr), 'omitnan'), 'Nm', 'Performance', 'Power Train Controller', 'demand and actual torque', 'Measures delivered torque fidelity.');
-rows = RCA_AddKPI(rows, 'Positive Torque Shortfall 95th Percentile', prctile(max(torqueErr, 0), 95), 'Nm', 'Performance', 'Power Train Controller', 'demand and actual torque', 'High values indicate under-delivery during propulsion.');
+rows = RCA_AddKPI(rows, 'Positive Torque Shortfall 95th Percentile', RCA_Percentile(max(torqueErr, 0), 95), 'Nm', 'Performance', 'Power Train Controller', 'demand and actual torque', 'High values indicate under-delivery during propulsion.');
 
 if ~all(isnan(limitPos))
-    limitUse = mean(demand > config.Thresholds.LimitUsageFraction .* limitPos, 'omitnan') * 100;
+    validLimitMask = isfinite(demand) & isfinite(limitPos);
+    limitUse = 100 * RCA_FractionTrue(demand > config.Thresholds.LimitUsageFraction .* limitPos, validLimitMask);
     rows = RCA_AddKPI(rows, 'Command Near Positive Torque Limit', limitUse, '%', 'Performance', 'Power Train Controller', 'demand torque + max available torque', 'Near-limit operation indicates the controller is requesting all available propulsion.');
     summary(end + 1) = sprintf('Controller saturation evidence: %.1f%% of samples request at least %.0f%% of positive torque capability.', ...
         limitUse, config.Thresholds.LimitUsageFraction * 100);
@@ -35,7 +36,7 @@ if mean(max(torqueErr, 0), 'omitnan') > 50
     recs(end + 1) = "Review torque arbitration and limiter coordination; persistent positive torque shortfall points to demand clipping or delayed torque release.";
     evidence(end + 1) = sprintf('Average positive torque shortfall is %.1f Nm.', mean(max(torqueErr, 0), 'omitnan'));
 end
-if ~all(isnan(limitPos)) && mean(demand > config.Thresholds.LimitUsageFraction .* limitPos, 'omitnan') > 0.05
+if ~all(isnan(limitPos)) && RCA_FractionTrue(demand > config.Thresholds.LimitUsageFraction .* limitPos, isfinite(demand) & isfinite(limitPos)) > 0.05
     recs(end + 1) = "Distinguish controller saturation from plant limitation in reports; the controller frequently requests the positive torque ceiling.";
     evidence(end + 1) = "Demand operates near the available torque envelope for more than 5% of samples.";
 end

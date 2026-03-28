@@ -20,28 +20,48 @@ if all(isnan(chgPwrLim)) && all(isnan(disPwrLim)) && all(isnan(chgCurLim)) && al
     return;
 end
 
-dischargeLimitUse = max(battPwr, 0) ./ max(disPwrLim, eps);
-chargeLimitUse = max(-battPwr, 0) ./ max(chgPwrLim, eps);
-dischargeCurrentLimitUse = max(battCurr, 0) ./ max(disCurLim, eps);
-chargeCurrentLimitUse = max(-battCurr, 0) ./ max(chgCurLim, eps);
-currentLimitUse = max(dischargeCurrentLimitUse, chargeCurrentLimitUse);
+dischargeLimitUse = NaN(size(battPwr));
+chargeLimitUse = NaN(size(battPwr));
+dischargeCurrentLimitUse = NaN(size(battCurr));
+chargeCurrentLimitUse = NaN(size(battCurr));
 
-rows = RCA_AddKPI(rows, 'Discharge Power Limit Utilization Mean', mean(dischargeLimitUse, 'omitnan') * 100, '%', 'Performance', 'Battery Management System', 'batt_pwr + batt_dischrg_pwr_lim', 'Limit utilization indicates power-headroom consumption.');
-rows = RCA_AddKPI(rows, 'Charge Power Limit Utilization Mean', mean(chargeLimitUse, 'omitnan') * 100, '%', 'Efficiency', 'Battery Management System', 'batt_pwr + batt_chrg_pwr_lim', 'High value can suppress regen headroom under workbook sign convention.');
-rows = RCA_AddKPI(rows, 'Current Limit Utilization Mean', mean(currentLimitUse, 'omitnan') * 100, '%', 'Performance', 'Battery Management System', 'batt_curr + current limits', 'Uses the larger of discharge-positive or charge-positive current limit utilization.');
+dischargePowerActive = isfinite(battPwr) & isfinite(disPwrLim) & (battPwr > 0) & (disPwrLim > 0);
+chargePowerActive = isfinite(battPwr) & isfinite(chgPwrLim) & (battPwr < 0) & (chgPwrLim > 0);
+dischargeCurrentActive = isfinite(battCurr) & isfinite(disCurLim) & (battCurr > 0) & (disCurLim > 0);
+chargeCurrentActive = isfinite(battCurr) & isfinite(chgCurLim) & (battCurr < 0) & (chgCurLim > 0);
+
+dischargeLimitUse(dischargePowerActive) = battPwr(dischargePowerActive) ./ disPwrLim(dischargePowerActive);
+chargeLimitUse(chargePowerActive) = -battPwr(chargePowerActive) ./ chgPwrLim(chargePowerActive);
+dischargeCurrentLimitUse(dischargeCurrentActive) = battCurr(dischargeCurrentActive) ./ disCurLim(dischargeCurrentActive);
+chargeCurrentLimitUse(chargeCurrentActive) = -battCurr(chargeCurrentActive) ./ chgCurLim(chargeCurrentActive);
+
+currentLimitUse = NaN(size(battCurr));
+currentLimitUse(dischargeCurrentActive) = dischargeCurrentLimitUse(dischargeCurrentActive);
+currentLimitUse(chargeCurrentActive) = chargeCurrentLimitUse(chargeCurrentActive);
+
+nearAnyLimit = false(size(battPwr));
+nearAnyLimit(dischargePowerActive) = dischargeLimitUse(dischargePowerActive) > config.Thresholds.LimitUsageFraction;
+nearAnyLimit(chargePowerActive) = nearAnyLimit(chargePowerActive) | chargeLimitUse(chargePowerActive) > config.Thresholds.LimitUsageFraction;
+nearAnyLimit(dischargeCurrentActive) = nearAnyLimit(dischargeCurrentActive) | dischargeCurrentLimitUse(dischargeCurrentActive) > config.Thresholds.LimitUsageFraction;
+nearAnyLimit(chargeCurrentActive) = nearAnyLimit(chargeCurrentActive) | chargeCurrentLimitUse(chargeCurrentActive) > config.Thresholds.LimitUsageFraction;
+validAnyLimit = dischargePowerActive | chargePowerActive | dischargeCurrentActive | chargeCurrentActive;
+nearAnyLimitPct = 100 * RCA_FractionTrue(nearAnyLimit, validAnyLimit);
+
+rows = RCA_AddKPI(rows, 'Discharge Power Limit Utilization Mean', mean(dischargeLimitUse, 'omitnan') * 100, '%', 'Performance', 'Battery Management System', 'batt_pwr + batt_dischrg_pwr_lim', 'Mean utilization over discharge-active samples only.');
+rows = RCA_AddKPI(rows, 'Charge Power Limit Utilization Mean', mean(chargeLimitUse, 'omitnan') * 100, '%', 'Efficiency', 'Battery Management System', 'batt_pwr + batt_chrg_pwr_lim', 'Mean utilization over charge-active samples only under workbook sign convention.');
+rows = RCA_AddKPI(rows, 'Current Limit Utilization Mean', mean(currentLimitUse, 'omitnan') * 100, '%', 'Performance', 'Battery Management System', 'batt_curr + current limits', 'Mean of the active current-limit utilization samples.');
 rows = RCA_AddKPI(rows, 'Time Near Any Battery Limit', ...
-    100 * mean(dischargeLimitUse > config.Thresholds.LimitUsageFraction | chargeLimitUse > config.Thresholds.LimitUsageFraction | currentLimitUse > config.Thresholds.LimitUsageFraction, 'omitnan'), ...
-    '%', 'Performance', 'Battery Management System', 'battery power/current and limits', 'Near-limit threshold is configurable.');
+    nearAnyLimitPct, '%', 'Performance', 'Battery Management System', 'battery power/current and limits', 'Near-limit threshold is configurable and evaluated only on active valid samples.');
 summary(end + 1) = sprintf('BMS limits are active or nearly active for %.1f%% of samples. RCA sign convention uses discharge positive and charge negative for battery power/current.', ...
-    100 * mean(dischargeLimitUse > config.Thresholds.LimitUsageFraction | chargeLimitUse > config.Thresholds.LimitUsageFraction | currentLimitUse > config.Thresholds.LimitUsageFraction, 'omitnan'));
+    nearAnyLimitPct);
 
 recs = strings(0, 1);
 evidence = strings(0, 1);
-if mean(dischargeLimitUse > config.Thresholds.LimitUsageFraction, 'omitnan') > 0.05
+if RCA_FractionTrue(dischargeLimitUse > config.Thresholds.LimitUsageFraction, dischargePowerActive) > 0.05
     recs(end + 1) = "Discharge limits are frequently active; revisit power-limit calibration or battery capability assumptions before assigning poor acceleration only to the motor or gearbox.";
     evidence(end + 1) = "Discharge power stays near limit for more than 5% of samples.";
 end
-if mean(chargeLimitUse > config.Thresholds.LimitUsageFraction, 'omitnan') > 0.05
+if RCA_FractionTrue(chargeLimitUse > config.Thresholds.LimitUsageFraction, chargePowerActive) > 0.05
     recs(end + 1) = "Charge acceptance limits are materially restricting regen; inspect temperature and SoC dependent BMS calibration.";
     evidence(end + 1) = "Charge power stays near limit for more than 5% of samples.";
 end

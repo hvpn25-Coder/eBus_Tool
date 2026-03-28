@@ -20,29 +20,37 @@ if all(isnan(elecPwr))
     return;
 end
 
-tractiveMask = elecPwr > 1 & mechPwr > 0;
-elecEnergy = trapz(t, max(elecPwr, 0)) / 3600;
-mechEnergy = trapz(t, max(mechPwr, 0)) / 3600;
-lossEnergy = trapz(t, max(lossPwr, 0)) / 3600;
-efficiency = mechPwr ./ max(elecPwr, eps);
-efficiency(~tractiveMask) = NaN;
+motorSpdAbs = abs(motorSpd);
+tractiveMask = isfinite(elecPwr) & isfinite(mechPwr) & elecPwr > 1 & mechPwr > 0;
+elecEnergy = RCA_TrapzFinite(t, max(elecPwr, 0)) / 3600;
+mechEnergy = RCA_TrapzFinite(t, max(mechPwr, 0)) / 3600;
+lossEnergy = RCA_TrapzFinite(t, max(lossPwr, 0)) / 3600;
+efficiency = NaN(size(elecPwr));
+efficiency(tractiveMask) = mechPwr(tractiveMask) ./ max(elecPwr(tractiveMask), eps);
+avgEffPct = mean(efficiency, 'omitnan') * 100;
 
 rows = RCA_AddKPI(rows, 'Electrical Traction Energy', elecEnergy, 'kWh', 'Energy', 'Electric Drive', 'emot1_pwr + emot2_pwr', 'Integrated drive-positive electrical power after workbook sign normalization.');
 rows = RCA_AddKPI(rows, 'Mechanical Traction Energy', mechEnergy, 'kWh', 'Energy', 'Electric Drive', 'torque + speed or motor power basis', 'Integrated positive mechanical output.');
-rows = RCA_AddKPI(rows, 'Average Tractive Electric Drive Efficiency', mean(efficiency, 'omitnan') * 100, '%', 'Efficiency', 'Electric Drive', 'motor electrical + mechanical power', 'Only positive tractive samples are included.');
+rows = RCA_AddKPI(rows, 'Average Tractive Electric Drive Efficiency', avgEffPct, '%', 'Efficiency', 'Electric Drive', 'motor electrical + mechanical power', 'Only positive tractive samples are included.');
 rows = RCA_AddKPI(rows, 'Electric Drive Loss Energy', lossEnergy, 'kWh', 'Losses', 'Electric Drive', 'emot1_loss_pwr + emot2_loss_pwr', 'Integrated positive loss power.');
-rows = RCA_AddKPI(rows, 'Mean Motor Speed', mean(motorSpd, 'omitnan'), 'rpm', 'Operation', 'Electric Drive', 'emot1_act_spd + emot2_act_spd', 'Combined average speed.');
+rows = RCA_AddKPI(rows, 'Mean Motor Speed Magnitude', mean(motorSpdAbs, 'omitnan'), 'rpm', 'Operation', 'Electric Drive', 'emot1_act_spd + emot2_act_spd', 'Combined average speed magnitude.');
 
-highSpeedShare = mean(motorSpd > config.Thresholds.HighMotorEfficiencySpeedFraction * max(motorSpd, [], 'omitnan'), 'omitnan') * 100;
+validHighSpeed = tractiveMask & isfinite(motorSpdAbs);
+if any(validHighSpeed)
+    highSpeedRef = max(motorSpdAbs(validHighSpeed), [], 'omitnan');
+    highSpeedShare = 100 * RCA_FractionTrue(motorSpdAbs > config.Thresholds.HighMotorEfficiencySpeedFraction * highSpeedRef, validHighSpeed);
+else
+    highSpeedShare = NaN;
+end
 rows = RCA_AddKPI(rows, 'High Motor Speed Time Share', highSpeedShare, '%', 'Efficiency', 'Electric Drive', 'motor speed', 'High-speed threshold is a heuristic fraction of observed maximum speed.');
 summary(end + 1) = sprintf('Electric drive mean tractive efficiency is %.1f%% with %.2f kWh of integrated loss energy.', ...
-    mean(efficiency, 'omitnan') * 100, lossEnergy);
+    avgEffPct, lossEnergy);
 
 recs = strings(0, 1);
 evidence = strings(0, 1);
-if mean(efficiency, 'omitnan') * 100 < 85
+if avgEffPct < 85
     recs(end + 1) = "Review motor/inverter operating region clustering; the drive spends too much tractive time away from an efficient region.";
-    evidence(end + 1) = sprintf('Average tractive efficiency is %.1f%%.', mean(efficiency, 'omitnan') * 100);
+    evidence(end + 1) = sprintf('Average tractive efficiency is %.1f%%.', avgEffPct);
 end
 if highSpeedShare > 15
     recs(end + 1) = "Investigate whether shift scheduling or final ratio keeps the motors in a high-speed region too often.";
@@ -61,7 +69,8 @@ legend({'Electrical', 'Mechanical', 'Loss'}, 'Location', 'best');
 grid on;
 
 subplot(2, 1, 2);
-scatter(motorSpd, motorTrq, 12, efficiency * 100, 'filled');
+validScatter = isfinite(motorSpdAbs) & isfinite(motorTrq) & isfinite(efficiency);
+scatter(motorSpdAbs(validScatter), motorTrq(validScatter), 12, efficiency(validScatter) * 100, 'filled');
 title('Electric Drive Operating Region');
 xlabel('Motor Speed (rpm)');
 ylabel('Total Motor Torque (Nm)');

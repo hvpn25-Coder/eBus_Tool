@@ -24,45 +24,89 @@ for iSeg = 1:height(segments)
     idx = segments.StartIndex(iSeg):segments.EndIndex(iSeg);
     segTime = t(idx);
     segDistance = sum(derived.distanceStep_km(idx), 'omitnan');
-    battDischarge = trapz(segTime, max(derived.batteryPower_kW(idx), 0)) / 3600;
-    battRegen = trapz(segTime, max(-derived.batteryPower_kW(idx), 0)) / 3600;
-    auxEnergy = trapz(segTime, max(derived.auxiliaryPower_kW(idx), 0)) / 3600;
-    battLoss = trapz(segTime, max(derived.batteryLossPower_kW(idx), 0)) / 3600;
-    motorLoss = trapz(segTime, max(derived.motorLossPower_kW(idx), 0)) / 3600;
-    gbxLoss = trapz(segTime, max(derived.gearboxLossPower_kW(idx), 0)) / 3600;
-    fricEnergy = trapz(segTime, max(derived.frictionBrakePower_kW(idx), 0)) / 3600;
+    battDischarge = RCA_TrapzFinite(segTime, max(derived.batteryPower_kW(idx), 0)) / 3600;
+    battRegen = RCA_TrapzFinite(segTime, max(-derived.batteryPower_kW(idx), 0)) / 3600;
+    auxEnergy = RCA_TrapzFinite(segTime, max(derived.auxiliaryPower_kW(idx), 0)) / 3600;
+    battLoss = RCA_TrapzFinite(segTime, max(derived.batteryLossPower_kW(idx), 0)) / 3600;
+    motorLoss = RCA_TrapzFinite(segTime, max(derived.motorLossPower_kW(idx), 0)) / 3600;
+    gbxLoss = RCA_TrapzFinite(segTime, max(derived.gearboxLossPower_kW(idx), 0)) / 3600;
+    fricEnergy = RCA_TrapzFinite(segTime, max(derived.frictionBrakePower_kW(idx), 0)) / 3600;
     lossEnergy = battLoss + motorLoss + gbxLoss + fricEnergy;
-    tractionEnergy = trapz(segTime, max(derived.tractionPower_kW(idx), 0)) / 3600;
-
-    whPerKm = 1000 * (battDischarge - battRegen) / max(segDistance, eps);
+    if segDistance > config.General.MinimumDistanceForWhpkm_km
+        whPerKm = 1000 * (battDischarge - battRegen) / segDistance;
+    else
+        whPerKm = NaN;
+    end
     trackingMae = mean(abs(derived.speedError_kmh(idx)), 'omitnan');
     torqueTrackingMae = mean(abs(derived.torqueDemandTotal_Nm(idx) - derived.torqueActualTotal_Nm(idx)), 'omitnan');
-    auxShare = 100 * auxEnergy / max(battDischarge, eps);
-    lossShare = 100 * lossEnergy / max(battDischarge, eps);
-    motorLossShare = 100 * motorLoss / max(battDischarge, eps);
-    gbxLossShare = 100 * gbxLoss / max(battDischarge, eps);
-    rollingLoadShare = 100 * trapz(segTime, max(derived.rollingResistanceForce_N(idx), 0) .* max(derived.vehVel_mps(idx), 0) / 1000) / 3600 / max(battDischarge, eps);
-    aeroLoadShare = 100 * trapz(segTime, max(derived.aeroDragForce_N(idx), 0) .* max(derived.vehVel_mps(idx), 0) / 1000) / 3600 / max(battDischarge, eps);
+    if battDischarge > 0
+        auxShare = 100 * auxEnergy / battDischarge;
+        lossShare = 100 * lossEnergy / battDischarge;
+        motorLossShare = 100 * motorLoss / battDischarge;
+        gbxLossShare = 100 * gbxLoss / battDischarge;
+        rollingLoadShare = 100 * RCA_TrapzFinite(segTime, max(derived.rollingResistanceForce_N(idx), 0) .* max(derived.vehVel_mps(idx), 0) / 1000) / 3600 / battDischarge;
+        aeroLoadShare = 100 * RCA_TrapzFinite(segTime, max(derived.aeroDragForce_N(idx), 0) .* max(derived.vehVel_mps(idx), 0) / 1000) / 3600 / battDischarge;
+    else
+        auxShare = NaN;
+        lossShare = NaN;
+        motorLossShare = NaN;
+        gbxLossShare = NaN;
+        rollingLoadShare = NaN;
+        aeroLoadShare = NaN;
+    end
     dischargePower = max(derived.batteryPower_kW(idx), 0);
     chargePower = max(-derived.batteryPower_kW(idx), 0);
     dischargeCurrent = max(derived.batteryCurrent_A(idx), 0);
     chargeCurrent = max(-derived.batteryCurrent_A(idx), 0);
-    batteryLimitUse = 100 * mean( ...
-        dischargePower > config.Thresholds.LimitUsageFraction .* derived.battDischargePowerLimit_kW(idx) | ...
-        chargePower > config.Thresholds.LimitUsageFraction .* derived.battChargePowerLimit_kW(idx) | ...
-        dischargeCurrent > config.Thresholds.LimitUsageFraction .* derived.battDischargeCurrentLimit_A(idx) | ...
-        chargeCurrent > config.Thresholds.LimitUsageFraction .* derived.battChargeCurrentLimit_A(idx), ...
-        'omitnan');
-    regenRecovery = 100 * battRegen / max(battRegen + fricEnergy, eps);
+    dischargePowerLimit = derived.battDischargePowerLimit_kW(idx);
+    chargePowerLimit = derived.battChargePowerLimit_kW(idx);
+    dischargeCurrentLimit = derived.battDischargeCurrentLimit_A(idx);
+    chargeCurrentLimit = derived.battChargeCurrentLimit_A(idx);
+    dischargePowerActive = dischargePower > 0 & isfinite(dischargePower) & isfinite(dischargePowerLimit) & dischargePowerLimit > 0;
+    chargePowerActive = chargePower > 0 & isfinite(chargePower) & isfinite(chargePowerLimit) & chargePowerLimit > 0;
+    dischargeCurrentActive = dischargeCurrent > 0 & isfinite(dischargeCurrent) & isfinite(dischargeCurrentLimit) & dischargeCurrentLimit > 0;
+    chargeCurrentActive = chargeCurrent > 0 & isfinite(chargeCurrent) & isfinite(chargeCurrentLimit) & chargeCurrentLimit > 0;
+    nearAnyLimit = false(size(dischargePower));
+    nearAnyLimit(dischargePowerActive) = dischargePower(dischargePowerActive) > config.Thresholds.LimitUsageFraction .* dischargePowerLimit(dischargePowerActive);
+    nearAnyLimit(chargePowerActive) = nearAnyLimit(chargePowerActive) | ...
+        chargePower(chargePowerActive) > config.Thresholds.LimitUsageFraction .* chargePowerLimit(chargePowerActive);
+    nearAnyLimit(dischargeCurrentActive) = nearAnyLimit(dischargeCurrentActive) | ...
+        dischargeCurrent(dischargeCurrentActive) > config.Thresholds.LimitUsageFraction .* dischargeCurrentLimit(dischargeCurrentActive);
+    nearAnyLimit(chargeCurrentActive) = nearAnyLimit(chargeCurrentActive) | ...
+        chargeCurrent(chargeCurrentActive) > config.Thresholds.LimitUsageFraction .* chargeCurrentLimit(chargeCurrentActive);
+    validLimitMask = dischargePowerActive | chargePowerActive | dischargeCurrentActive | chargeCurrentActive;
+    if any(validLimitMask)
+        batteryLimitUse = 100 * RCA_FractionTrue(nearAnyLimit, validLimitMask);
+    else
+        batteryLimitUse = NaN;
+    end
+    if (battRegen + fricEnergy) > 0
+        regenRecovery = 100 * battRegen / (battRegen + fricEnergy);
+    else
+        regenRecovery = NaN;
+    end
     meanSoc = mean(derived.batterySOC_pct(idx), 'omitnan');
     meanBatteryPower = mean(derived.batteryPower_kW(idx), 'omitnan');
     meanSpeed = mean(derived.vehVel_kmh(idx), 'omitnan');
     meanSlope = mean(derived.roadSlope_pct(idx), 'omitnan');
-    motorHighSpeedShare = 100 * mean(derived.motorSpeed_rpm(idx) > config.Thresholds.HighMotorEfficiencySpeedFraction * max(derived.motorSpeed_rpm, [], 'omitnan'), 'omitnan');
+    motorSpeedAbs = abs(derived.motorSpeed_rpm(idx));
+    validMotorSpeed = isfinite(motorSpeedAbs) & isfinite(derived.motorElectricalPower_kW(idx)) & abs(derived.motorElectricalPower_kW(idx)) > 1;
+    tripMotorSpeedRef = max(abs(derived.motorSpeed_rpm), [], 'omitnan');
+    if any(validMotorSpeed) && isfinite(tripMotorSpeedRef) && tripMotorSpeedRef > 0
+        motorHighSpeedShare = 100 * RCA_FractionTrue( ...
+            motorSpeedAbs > config.Thresholds.HighMotorEfficiencySpeedFraction * tripMotorSpeedRef, ...
+            validMotorSpeed);
+    else
+        motorHighSpeedShare = NaN;
+    end
 
     segGear = derived.gearNumber(idx);
     changeIdx = find(abs(diff(segGear)) > 0 & ~isnan(diff(segGear))) + 1;
-    shiftRate = numel(changeIdx) / max(segDistance, eps);
+    if segDistance > config.General.MinimumDistanceForWhpkm_km
+        shiftRate = numel(changeIdx) / segDistance;
+    else
+        shiftRate = NaN;
+    end
     huntingCount = 0;
     for iShift = 3:numel(changeIdx)
         if segGear(changeIdx(iShift)) == segGear(changeIdx(iShift - 2)) && ...
@@ -104,11 +148,12 @@ if isnan(tripMedianWhpkm) || tripMedianWhpkm <= 0
 end
 
 segmentSummary.EfficiencySeverity = segmentSummary.Wh_per_km ./ max(tripMedianWhpkm, eps);
+torqueTrackingP75 = RCA_Percentile(segmentSummary.TorqueTrackingMAE_Nm, 75);
 segmentSummary.PerformanceSeverity = max(segmentSummary.TrackingMAE_kmh ./ max(config.Thresholds.PoorTrackingError_kmh, eps), ...
-    segmentSummary.TorqueTrackingMAE_Nm ./ max(prctile(segmentSummary.TorqueTrackingMAE_Nm, 75), eps));
+    segmentSummary.TorqueTrackingMAE_Nm ./ max(torqueTrackingP75, eps));
 segmentSummary.IsPoorEfficiency = segmentSummary.EfficiencySeverity > config.Thresholds.PoorEfficiencyMultiplier;
 segmentSummary.IsPoorPerformance = segmentSummary.TrackingMAE_kmh > config.Thresholds.PoorTrackingError_kmh | ...
-    segmentSummary.TorqueTrackingMAE_Nm > prctile(segmentSummary.TorqueTrackingMAE_Nm, 75);
+    segmentSummary.TorqueTrackingMAE_Nm > torqueTrackingP75;
 segmentSummary.IsHighLoss = segmentSummary.LossShare_pct > config.Thresholds.HighLossShare_pct;
 segmentSummary.PrimaryIssueTag = repmat("Mixed", height(segmentSummary), 1);
 segmentSummary.PrimaryIssueTag(segmentSummary.IsPoorEfficiency & ~segmentSummary.IsPoorPerformance) = "Efficiency";

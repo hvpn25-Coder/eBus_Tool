@@ -16,11 +16,15 @@ if all(isnan(auxPwr))
     return;
 end
 
-auxEnergy = trapz(t, max(auxPwr, 0)) / 3600;
-netBattEnergy = trapz(t, max(battPwr, 0)) / 3600;
-auxShare = 100 * auxEnergy / max(netBattEnergy, eps);
+auxEnergy = RCA_TrapzFinite(t, max(auxPwr, 0)) / 3600;
+netBattEnergy = RCA_TrapzFinite(t, max(battPwr, 0)) / 3600;
+if netBattEnergy > 0
+    auxShare = 100 * auxEnergy / netBattEnergy;
+else
+    auxShare = NaN;
+end
 stationaryMask = vehSpeed <= config.Thresholds.StopSpeed_kmh;
-stationaryShare = 100 * trapz(t(stationaryMask), max(auxPwr(stationaryMask), 0)) / 3600 / max(auxEnergy, eps);
+stationaryShare = 100 * RCA_TrapzFinite(t(stationaryMask), max(auxPwr(stationaryMask), 0)) / 3600 / max(auxEnergy, eps);
 rangePenalty = analysisData.Derived.tripDistance_km * auxShare / 100;
 
 rows = RCA_AddKPI(rows, 'Auxiliary Energy', auxEnergy, 'kWh', 'Energy', 'Auxiliary Load', 'aux_curr + aux_volt', 'Derived from auxiliary current and voltage.');
@@ -50,7 +54,10 @@ ylabel('Power (kW)');
 grid on;
 
 subplot(2, 1, 2);
-plot(t, 100 * auxPwr ./ max(max(battPwr, 0), eps), 'Color', config.Plot.Colors.Warning, 'LineWidth', config.Plot.LineWidth);
+instantShare = NaN(size(auxPwr));
+activeDischargeMask = isfinite(auxPwr) & isfinite(battPwr) & battPwr > 0;
+instantShare(activeDischargeMask) = 100 * auxPwr(activeDischargeMask) ./ battPwr(activeDischargeMask);
+plot(t, instantShare, 'Color', config.Plot.Colors.Warning, 'LineWidth', config.Plot.LineWidth);
 title('Auxiliary Share of Instantaneous Battery Discharge Power');
 xlabel('Time (s)');
 ylabel('Share (%)');

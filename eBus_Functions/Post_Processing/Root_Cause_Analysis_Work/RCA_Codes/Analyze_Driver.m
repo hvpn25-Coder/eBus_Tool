@@ -13,17 +13,18 @@ summary = strings(0, 1);
 
 if accPedal.Available
     rows = RCA_AddKPI(rows, 'Mean Accelerator Pedal', mean(analysisData.Derived.accPedal_pct, 'omitnan'), '%', 'Operation', 'Driver', 'acc_pdl', 'Available from driver demand.');
-    rows = RCA_AddKPI(rows, 'Accelerator Pedal 95th Percentile', prctile(analysisData.Derived.accPedal_pct, 95), '%', 'Performance', 'Driver', 'acc_pdl', 'Reflects aggressive drive demand level.');
+    rows = RCA_AddKPI(rows, 'Accelerator Pedal 95th Percentile', RCA_Percentile(analysisData.Derived.accPedal_pct, 95), '%', 'Performance', 'Driver', 'acc_pdl', 'Reflects aggressive drive demand level.');
 end
 
 if brkPedal.Available
     rows = RCA_AddKPI(rows, 'Mean Brake Pedal', mean(analysisData.Derived.brkPedal_pct, 'omitnan'), '%', 'Operation', 'Driver', 'brk_pdl', 'Available from driver demand.');
-    rows = RCA_AddKPI(rows, 'Brake Pedal Active Time Share', 100 * mean(analysisData.Derived.brkPedal_pct > 1, 'omitnan'), '%', 'Operation', 'Driver', 'brk_pdl', '1% pedal threshold is heuristic and editable.');
+    rows = RCA_AddKPI(rows, 'Brake Pedal Active Time Share', 100 * RCA_FractionTrue(analysisData.Derived.brkPedal_pct > 1, isfinite(analysisData.Derived.brkPedal_pct)), '%', 'Operation', 'Driver', 'brk_pdl', '1% pedal threshold is heuristic and editable.');
 end
 
 if accPedal.Available && brkPedal.Available
-    overlap = mean((analysisData.Derived.accPedal_pct > 5) & (analysisData.Derived.brkPedal_pct > 5) & movingMask, 'omitnan') * 100;
-    coasting = mean((analysisData.Derived.accPedal_pct < 1) & (analysisData.Derived.brkPedal_pct < 1) & movingMask, 'omitnan') * 100;
+    validMoving = movingMask & isfinite(analysisData.Derived.accPedal_pct) & isfinite(analysisData.Derived.brkPedal_pct);
+    overlap = 100 * RCA_FractionTrue((analysisData.Derived.accPedal_pct > 5) & (analysisData.Derived.brkPedal_pct > 5), validMoving);
+    coasting = 100 * RCA_FractionTrue((analysisData.Derived.accPedal_pct < 1) & (analysisData.Derived.brkPedal_pct < 1), validMoving);
     rows = RCA_AddKPI(rows, 'Pedal Overlap Time Share', overlap, '%', 'Operation', 'Driver', 'acc_pdl + brk_pdl', 'Pedal overlap is a heuristic quality indicator.');
     rows = RCA_AddKPI(rows, 'Coasting Time Share', coasting, '%', 'Efficiency', 'Driver', 'acc_pdl + brk_pdl + veh_vel', 'Coasting can support efficient operation when route allows.');
     summary(end + 1) = sprintf('Driver demand quality: pedal overlap is %.2f%% of moving time and coasting share is %.1f%%.', overlap, coasting);
@@ -37,13 +38,14 @@ end
 recs = strings(0, 1);
 evidence = strings(0, 1);
 if brkPedal.Available && accPedal.Available
-    overlap = mean((analysisData.Derived.accPedal_pct > 5) & (analysisData.Derived.brkPedal_pct > 5) & movingMask, 'omitnan') * 100;
+    validMoving = movingMask & isfinite(analysisData.Derived.accPedal_pct) & isfinite(analysisData.Derived.brkPedal_pct);
+    overlap = 100 * RCA_FractionTrue((analysisData.Derived.accPedal_pct > 5) & (analysisData.Derived.brkPedal_pct > 5), validMoving);
     if overlap > 1
         recs(end + 1) = "Review driver model transitions around braking and re-acceleration; simultaneous pedal activity can hide controller or brake-blending behaviour.";
         evidence(end + 1) = sprintf('Pedal overlap reached %.2f%% of moving time.', overlap);
     end
 end
-if accPedal.Available && mean(analysisData.Derived.accPedal_pct > 80, 'omitnan') > 0.10
+if accPedal.Available && RCA_FractionTrue(analysisData.Derived.accPedal_pct > 80, isfinite(analysisData.Derived.accPedal_pct)) > 0.10
     recs(end + 1) = "A large fraction of full-throttle requests suggests a demanding cycle; keep this separate from subsystem inefficiency when assigning blame.";
     evidence(end + 1) = "Accelerator pedal spends more than 10% of time above 80%.";
 end

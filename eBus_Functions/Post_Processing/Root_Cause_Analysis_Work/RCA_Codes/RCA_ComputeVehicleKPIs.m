@@ -7,7 +7,8 @@ narrative = strings(0, 1);
 
 tripDuration = max(t) - min(t);
 tripDistance = derived.tripDistance_km;
-stopShare = 100 * mean(derived.vehVel_kmh <= config.Thresholds.StopSpeed_kmh, 'omitnan');
+validSpeed = isfinite(derived.vehVel_kmh);
+stopShare = 100 * RCA_FractionTrue(derived.vehVel_kmh <= config.Thresholds.StopSpeed_kmh, validSpeed);
 rows = RCA_AddKPI(rows, 'Trip Duration', tripDuration, 's', 'DriveCycle', 'Vehicle', 'reference time', 'Full trip duration.');
 rows = RCA_AddKPI(rows, 'Trip Distance', tripDistance, 'km', 'DriveCycle', 'Vehicle', 'veh_pos or integrated veh_vel', 'Distance basis selected automatically.');
 rows = RCA_AddKPI(rows, 'Average Speed', mean(derived.vehVel_kmh, 'omitnan'), 'km/h', 'DriveCycle', 'Vehicle', 'veh_vel', 'Trip mean vehicle speed.');
@@ -16,15 +17,16 @@ rows = RCA_AddKPI(rows, 'Stop Time Share', stopShare, '%', 'DriveCycle', 'Vehicl
 
 if ~all(isnan(derived.speedDemand_kmh))
     speedErr = derived.speedDemand_kmh - derived.vehVel_kmh;
+    validSpeedErr = isfinite(speedErr);
     rows = RCA_AddKPI(rows, 'Speed Tracking MAE', mean(abs(speedErr), 'omitnan'), 'km/h', 'Performance', 'Vehicle', 'veh_des_vel + veh_vel', 'Mean absolute tracking error.');
     rows = RCA_AddKPI(rows, 'Speed Tracking RMSE', sqrt(mean(speedErr .^ 2, 'omitnan')), 'km/h', 'Performance', 'Vehicle', 'veh_des_vel + veh_vel', 'Root mean square tracking error.');
     rows = RCA_AddKPI(rows, 'Time Above Tracking Threshold', ...
-        100 * mean(abs(speedErr) > config.Thresholds.PoorTrackingError_kmh, 'omitnan'), '%', ...
+        100 * RCA_FractionTrue(abs(speedErr) > config.Thresholds.PoorTrackingError_kmh, validSpeedErr), '%', ...
         'Performance', 'Vehicle', 'veh_des_vel + veh_vel', 'Tracking threshold is configured in RCA_Config.');
 end
 
-dischargeEnergy = trapz(t, max(derived.batteryPower_kW, 0)) / 3600;
-regenEnergy = trapz(t, max(-derived.batteryPower_kW, 0)) / 3600;
+dischargeEnergy = RCA_TrapzFinite(t, max(derived.batteryPower_kW, 0)) / 3600;
+regenEnergy = RCA_TrapzFinite(t, max(-derived.batteryPower_kW, 0)) / 3600;
 netEnergy = dischargeEnergy - regenEnergy;
 rows = RCA_AddKPI(rows, 'Battery Discharge Energy', dischargeEnergy, 'kWh', 'Energy', 'Vehicle', 'batt_pwr', 'Integrated discharge-positive battery power after applying workbook sign convention.');
 rows = RCA_AddKPI(rows, 'Battery Regen Energy', regenEnergy, 'kWh', 'Energy', 'Vehicle', 'batt_pwr', 'Integrated charging/recovered battery power after applying workbook sign convention.');
@@ -34,12 +36,12 @@ if tripDistance > config.General.MinimumDistanceForWhpkm_km
     rows = RCA_AddKPI(rows, 'Energy Intensity', netEnergy * 1000 / tripDistance, 'Wh/km', 'Efficiency', 'Vehicle', 'batt_pwr + trip distance', 'Net electrical energy per kilometre.');
 end
 
-auxEnergy = trapz(t, max(derived.auxiliaryPower_kW, 0)) / 3600;
-tractionEnergy = trapz(t, max(derived.tractionPower_kW, 0)) / 3600;
-motorLossEnergy = trapz(t, max(derived.motorLossPower_kW, 0)) / 3600;
-gbxLossEnergy = trapz(t, max(derived.gearboxLossPower_kW, 0)) / 3600;
-battLossEnergy = trapz(t, max(derived.batteryLossPower_kW, 0)) / 3600;
-fricEnergy = trapz(t, max(derived.frictionBrakePower_kW, 0)) / 3600;
+auxEnergy = RCA_TrapzFinite(t, max(derived.auxiliaryPower_kW, 0)) / 3600;
+tractionEnergy = RCA_TrapzFinite(t, max(derived.tractionPower_kW, 0)) / 3600;
+motorLossEnergy = RCA_TrapzFinite(t, max(derived.motorLossPower_kW, 0)) / 3600;
+gbxLossEnergy = RCA_TrapzFinite(t, max(derived.gearboxLossPower_kW, 0)) / 3600;
+battLossEnergy = RCA_TrapzFinite(t, max(derived.batteryLossPower_kW, 0)) / 3600;
+fricEnergy = RCA_TrapzFinite(t, max(derived.frictionBrakePower_kW, 0)) / 3600;
 
 rows = RCA_AddKPI(rows, 'Auxiliary Energy', auxEnergy, 'kWh', 'Energy', 'Vehicle', 'aux_curr + aux_volt', 'Integrated auxiliary electrical demand.');
 rows = RCA_AddKPI(rows, 'Traction Mechanical Energy', tractionEnergy, 'kWh', 'Energy', 'Vehicle', 'traction force + vehicle speed', 'Wheel-end mechanical work.');
@@ -47,9 +49,21 @@ rows = RCA_AddKPI(rows, 'Battery Loss Energy', battLossEnergy, 'kWh', 'Losses', 
 rows = RCA_AddKPI(rows, 'Motor/Inverter Loss Energy', motorLossEnergy, 'kWh', 'Losses', 'Vehicle', 'emot loss power', 'Electric drive loss integral.');
 rows = RCA_AddKPI(rows, 'Transmission Loss Energy', gbxLossEnergy, 'kWh', 'Losses', 'Vehicle', 'gbx_pwr_loss', 'Gearbox loss integral.');
 rows = RCA_AddKPI(rows, 'Friction Brake Energy', fricEnergy, 'kWh', 'Losses', 'Vehicle', 'fric_brk_pwr', 'Friction dissipation integral.');
-rows = RCA_AddKPI(rows, 'Battery-to-Wheel Efficiency', 100 * tractionEnergy / max(dischargeEnergy, eps), '%', 'Efficiency', 'Vehicle', 'batt_pwr + traction power', 'Mechanical wheel output over discharge-positive battery energy.');
-rows = RCA_AddKPI(rows, 'Auxiliary Energy Share', 100 * auxEnergy / max(dischargeEnergy, eps), '%', 'Efficiency', 'Vehicle', 'auxiliary power + battery power', 'Auxiliary share of discharge-positive battery energy.');
-rows = RCA_AddKPI(rows, 'Approximate Regen Recovery Fraction', 100 * regenEnergy / max(regenEnergy + fricEnergy, eps), '%', 'Efficiency', 'Vehicle', 'batt_pwr + fric_brk_pwr', 'Recovered electrical braking divided by recovered plus friction braking energy after sign normalization.');
+if dischargeEnergy > 0
+    batteryToWheelEff = 100 * tractionEnergy / dischargeEnergy;
+    auxiliaryShare = 100 * auxEnergy / dischargeEnergy;
+else
+    batteryToWheelEff = NaN;
+    auxiliaryShare = NaN;
+end
+if (regenEnergy + fricEnergy) > 0
+    regenRecovery = 100 * regenEnergy / (regenEnergy + fricEnergy);
+else
+    regenRecovery = NaN;
+end
+rows = RCA_AddKPI(rows, 'Battery-to-Wheel Efficiency', batteryToWheelEff, '%', 'Efficiency', 'Vehicle', 'batt_pwr + traction power', 'Mechanical wheel output over discharge-positive battery energy.');
+rows = RCA_AddKPI(rows, 'Auxiliary Energy Share', auxiliaryShare, '%', 'Efficiency', 'Vehicle', 'auxiliary power + battery power', 'Auxiliary share of discharge-positive battery energy.');
+rows = RCA_AddKPI(rows, 'Approximate Regen Recovery Fraction', regenRecovery, '%', 'Efficiency', 'Vehicle', 'batt_pwr + fric_brk_pwr', 'Recovered electrical braking divided by recovered plus friction braking energy after sign normalization.');
 
 gear = derived.gearNumber;
 changeIdx = find(abs(diff(gear)) > 0 & ~isnan(diff(gear))) + 1;
@@ -66,9 +80,14 @@ rows = RCA_AddKPI(rows, 'Gear Shift Rate', shiftCount / max(tripDistance, eps), 
 rows = RCA_AddKPI(rows, 'Gear Hunting Count', huntingCount, 'count', 'Gear', 'Vehicle', 'gr_num', 'A-B-A reversals within the configured hunting window.');
 
 if ~all(isnan(derived.batterySOC_pct))
-    usableSoc = max(derived.batterySOC_pct(1) - derived.batterySOC_pct(end), 0);
+    finiteSoc = derived.batterySOC_pct(isfinite(derived.batterySOC_pct));
+    usableSoc = NaN;
+    remainingSoc = NaN;
+    if numel(finiteSoc) >= 2
+        usableSoc = max(finiteSoc(1) - finiteSoc(end), 0);
+        remainingSoc = max(finiteSoc(end) - config.General.DefaultReserveSOC_pct, 0);
+    end
     if usableSoc > 0 && tripDistance > 0
-        remainingSoc = max(derived.batterySOC_pct(end) - config.General.DefaultReserveSOC_pct, 0);
         estimatedRemainingRange = tripDistance / usableSoc * remainingSoc;
         rows = RCA_AddKPI(rows, 'Estimated Remaining Range', estimatedRemainingRange, 'km', 'Range', 'Vehicle', 'batt_soc + trip distance', ...
             'Empirical estimate based on observed distance per percentage-point SoC.');

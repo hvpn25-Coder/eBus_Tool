@@ -19,9 +19,14 @@ if all(isnan(battPwr)) && all(isnan(soc))
     return;
 end
 
-dischargeEnergy = trapz(t, max(battPwr, 0)) / 3600;
-regenEnergy = trapz(t, max(-battPwr, 0)) / 3600;
-socDrop = max(soc(1) - soc(end), 0);
+dischargeEnergy = RCA_TrapzFinite(t, max(battPwr, 0)) / 3600;
+regenEnergy = RCA_TrapzFinite(t, max(-battPwr, 0)) / 3600;
+finiteSoc = soc(isfinite(soc));
+if numel(finiteSoc) >= 2
+    socDrop = max(finiteSoc(1) - finiteSoc(end), 0);
+else
+    socDrop = NaN;
+end
 voltSagPct = 100 * (max(volt, [], 'omitnan') - min(volt, [], 'omitnan')) / max(max(volt, [], 'omitnan'), eps);
 
 rows = RCA_AddKPI(rows, 'Battery Discharge Energy', dischargeEnergy, 'kWh', 'Energy', 'Battery', 'batt_pwr', 'Integrated discharge-positive battery power after workbook sign normalization.');
@@ -30,7 +35,7 @@ rows = RCA_AddKPI(rows, 'Battery SoC Drop', socDrop, '%', 'Operation', 'Battery'
 rows = RCA_AddKPI(rows, 'Mean Battery Voltage', mean(volt, 'omitnan'), 'V', 'Operation', 'Battery', 'batt_volt', 'Average terminal voltage.');
 rows = RCA_AddKPI(rows, 'Battery Voltage Sag Range', voltSagPct, '%', 'Performance', 'Battery', 'batt_volt', 'Voltage span across the trip as a simple sag indicator.');
 rows = RCA_AddKPI(rows, 'Mean Battery Current', mean(curr, 'omitnan'), 'A', 'Operation', 'Battery', 'batt_curr', 'Average battery current in RCA convention: discharge positive, charge negative.');
-rows = RCA_AddKPI(rows, 'Battery Loss Energy', trapz(t, max(loss, 0)) / 3600, 'kWh', 'Losses', 'Battery', 'batt_loss_pwr', 'Integrated positive battery loss power.');
+rows = RCA_AddKPI(rows, 'Battery Loss Energy', RCA_TrapzFinite(t, max(loss, 0)) / 3600, 'kWh', 'Losses', 'Battery', 'batt_loss_pwr', 'Integrated positive battery loss power.');
 rows = RCA_AddKPI(rows, 'Battery Temperature Range', max(temp, [], 'omitnan') - min(temp, [], 'omitnan'), 'degC', 'Operation', 'Battery', 'batt_temp', 'Temperature spread across the trip.');
 summary(end + 1) = sprintf('Battery summary: %.2f kWh discharged, %.2f kWh recovered, %.1f%% SoC drop. RCA sign convention uses discharge positive and charge negative based on workbook metadata.', ...
     dischargeEnergy, regenEnergy, socDrop);

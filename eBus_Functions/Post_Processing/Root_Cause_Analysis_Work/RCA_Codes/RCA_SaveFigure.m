@@ -14,6 +14,13 @@ figurePath = fullfile(outputFolder, [safeName '.png']);
 
 set(figHandle, 'Color', 'w');
 set(findall(figHandle, '-property', 'FontSize'), 'FontSize', config.Plot.FontSize);
+axesHandles = findall(figHandle, 'Type', 'axes');
+for iAxis = 1:numel(axesHandles)
+    try
+        axesHandles(iAxis).Toolbar = [];
+    catch
+    end
+end
 
 try
     exportgraphics(figHandle, figurePath, 'Resolution', 150);
