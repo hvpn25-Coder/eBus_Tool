@@ -1,11 +1,16 @@
-function [signalStore, referenceInfo] = RCA_AlignSignalStore(signalStore, rawData, config)
+function [signalStore, referenceInfo] = RCA_AlignSignalStore(signalStore, rawData, config, timeSignalNames)
 % RCA_AlignSignalStore  Align all dynamic signals to a common reference time.
 
 if nargin < 3 || isempty(config)
     config = RCA_Config();
 end
+if nargin < 4 || isempty(timeSignalNames)
+    timeSignalNames = strings(0, 1);
+else
+    timeSignalNames = string(timeSignalNames(:));
+end
 
-[referenceTime, referenceSource, referenceMethod] = localSelectReferenceTime(signalStore, rawData, config);
+[referenceTime, referenceSource, referenceMethod] = localSelectReferenceTime(signalStore, rawData, config, timeSignalNames);
 [referenceTime, timeWasSanitized] = localSanitizeReferenceTime(referenceTime);
 if timeWasSanitized
     referenceMethod = string(referenceMethod) + "|Sanitized";
@@ -70,16 +75,19 @@ end
 referenceInfo = struct('Time_s', referenceTime, 'Source', string(referenceSource), 'Method', string(referenceMethod));
 end
 
-function [referenceTime, referenceSource, referenceMethod] = localSelectReferenceTime(signalStore, rawData, config)
+function [referenceTime, referenceSource, referenceMethod] = localSelectReferenceTime(signalStore, rawData, config, timeSignalNames)
 referenceTime = [];
 referenceSource = "";
 referenceMethod = "SignalReference";
 
-for iPreferred = 1:numel(config.PreferredReferenceSignals)
-    candidate = RCA_GetSignalData(signalStore, config.PreferredReferenceSignals{iPreferred});
-    if candidate.Available && ~isempty(candidate.Time) && numel(candidate.Time) >= config.General.MinimumDynamicSamples
-        referenceTime = double(candidate.Time(:));
+preferredSignals = unique([timeSignalNames; string(config.PreferredReferenceSignals(:))], 'stable');
+for iPreferred = 1:numel(preferredSignals)
+    candidate = RCA_GetSignalData(signalStore, preferredSignals(iPreferred));
+    [candidateTime, candidateMethod] = localResolveSignalTime(candidate, config, timeSignalNames);
+    if ~isempty(candidateTime)
+        referenceTime = candidateTime;
         referenceSource = candidate.Name;
+        referenceMethod = candidateMethod;
         return;
     end
 end
@@ -87,9 +95,11 @@ end
 signalFields = fieldnames(signalStore);
 for iField = 1:numel(signalFields)
     signal = signalStore.(signalFields{iField});
-    if signal.Available && ~isempty(signal.Time) && numel(signal.Time) >= config.General.MinimumDynamicSamples
-        referenceTime = double(signal.Time(:));
+    [candidateTime, candidateMethod] = localResolveSignalTime(signal, config, timeSignalNames);
+    if ~isempty(candidateTime)
+        referenceTime = candidateTime;
         referenceSource = signal.Name;
+        referenceMethod = candidateMethod;
         return;
     end
 end
@@ -125,6 +135,53 @@ if any(contains(signalText, string(config.SignalFallback.DiscreteTokenList)))
     method = 'nearest';
 else
     method = 'linear';
+end
+end
+
+function [candidateTime, candidateMethod] = localResolveSignalTime(signal, config, timeSignalNames)
+candidateTime = [];
+candidateMethod = "SignalReference";
+if ~isfield(signal, 'Available') || ~signal.Available
+    return;
+end
+
+if ~isempty(signal.Time) && numel(signal.Time) >= config.General.MinimumDynamicSamples && localIsUsableTimeVector(signal.Time)
+    candidateTime = double(signal.Time(:));
+    candidateMethod = "SignalReference";
+    return;
+end
+
+if localIsExplicitTimeSignal(signal, timeSignalNames) && ~isempty(signal.Data) && ...
+        numel(signal.Data) >= config.General.MinimumDynamicSamples && localIsUsableTimeVector(signal.Data)
+    candidateTime = double(signal.Data(:));
+    candidateMethod = "WorkbookTimeSignal";
+end
+end
+
+function tf = localIsExplicitTimeSignal(signal, timeSignalNames)
+signalNameKey = localNormalizeText(signal.Name);
+descriptionKey = localNormalizeText(signal.Description);
+unitKey = localNormalizeText(signal.Unit);
+timeSignalNameKeys = localNormalizeText(timeSignalNames);
+
+nameMatchesWorkbook = any(strcmp(signalNameKey, timeSignalNameKeys));
+hasTimeText = strcmp(descriptionKey, "time") || strcmp(signalNameKey, "time") || ...
+    strcmp(signalNameKey, "timesim") || strcmp(signalNameKey, "simtime") || ...
+    contains(descriptionKey, "time") || contains(signalNameKey, "time");
+hasSecondUnit = any(strcmp(unitKey, ["s", "sec", "secs", "second", "seconds"]));
+tf = nameMatchesWorkbook || (hasTimeText && hasSecondUnit);
+end
+
+function tf = localIsUsableTimeVector(value)
+value = double(value(:));
+tf = numel(value) >= 3 && all(isfinite(value)) && all(diff(value) >= 0);
+end
+
+function normalized = localNormalizeText(textValue)
+textValue = string(textValue);
+normalized = strings(size(textValue));
+for iValue = 1:numel(textValue)
+    normalized(iValue) = lower(regexprep(textValue(iValue), '[^a-zA-Z0-9]', ''));
 end
 end
 

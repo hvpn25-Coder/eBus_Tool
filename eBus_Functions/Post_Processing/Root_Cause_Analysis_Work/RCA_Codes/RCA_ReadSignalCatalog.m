@@ -25,8 +25,10 @@ blockDiagram = localParseBlockSheet(excelFilePath, blockSheet);
 
 if ~isempty(signalCatalog)
     signalCatalog.IsRequired = ismember(cellstr(signalCatalog.VariableName), config.RequiredSignalNames);
+    signalCatalog.IsTimeSignal = localIdentifyTimeSignals(signalCatalog);
 else
     signalCatalog.IsRequired = false(0, 1);
+    signalCatalog.IsTimeSignal = false(0, 1);
 end
 
 subsystems = unique([signalCatalog.Subsystem; specCatalog.Subsystem; blockDiagram.Subsystem], 'stable');
@@ -41,6 +43,7 @@ metadata.SignalCatalog = signalCatalog;
 metadata.SpecCatalog = specCatalog;
 metadata.BlockDiagram = blockDiagram;
 metadata.SubsystemList = subsystems;
+metadata.TimeSignalNames = unique(signalCatalog.VariableName(signalCatalog.IsTimeSignal), 'stable');
 end
 
 function selectedSheet = localSelectSheet(sheetList, tokens)
@@ -275,4 +278,20 @@ end
 
 function normalized = localNormalizeScalar(value)
 normalized = lower(regexprep(string(value), '[^a-zA-Z0-9]', ''));
+end
+
+function isTimeSignal = localIdentifyTimeSignals(signalCatalog)
+isTimeSignal = false(height(signalCatalog), 1);
+for iRow = 1:height(signalCatalog)
+    descriptionKey = localNormalizeScalar(signalCatalog.Description(iRow));
+    variableKey = localNormalizeScalar(signalCatalog.VariableName(iRow));
+    unitKey = localNormalizeScalar(signalCatalog.Unit(iRow));
+
+    hasTimeText = strcmp(descriptionKey, "time") || strcmp(variableKey, "time") || ...
+        strcmp(variableKey, "timesim") || strcmp(variableKey, "simtime") || ...
+        contains(descriptionKey, "time") || contains(variableKey, "time");
+    hasSecondUnit = any(strcmp(unitKey, ["s", "sec", "secs", "second", "seconds"]));
+
+    isTimeSignal(iRow) = hasTimeText && (hasSecondUnit || strcmp(descriptionKey, "time"));
+end
 end

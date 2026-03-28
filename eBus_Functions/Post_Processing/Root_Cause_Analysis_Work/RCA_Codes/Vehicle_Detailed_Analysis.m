@@ -37,7 +37,7 @@ fprintf('============================================================\n');
 metadata = RCA_ReadSignalCatalog(excelFilePath, config);
 rawData = RCA_LoadMatData(matFilePath, config);
 [signals, specs, signalPresence, specPresence, extractionLog] = RCA_CheckSignalPresence(metadata, rawData, config);
-[signals, referenceInfo] = RCA_AlignSignalStore(signals, rawData, config);
+[signals, referenceInfo] = RCA_AlignSignalStore(signals, rawData, config, metadata.TimeSignalNames);
 derived = RCA_BuildDerivedSignals(signals, specs, referenceInfo, config);
 segments = RCA_CreateSegments(derived, config);
 [vehicleKPI, vehicleNarrative] = RCA_ComputeVehicleKPIs(derived, signals, specs, signalPresence, config);

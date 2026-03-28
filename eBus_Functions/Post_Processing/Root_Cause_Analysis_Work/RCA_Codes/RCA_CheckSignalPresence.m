@@ -69,8 +69,9 @@ for iEval = 1:numel(evaluations)
     [value, time, evalNote, ok] = localEvaluateExpression(expr, rawData, entryType);
     if ok
         entry = localPopulateEntry(entry, value, time, expr, "WorkbookEvaluation", evalNote, false);
+        entry = localApplyExplicitTimeSignalRule(entry, row);
         method = "WorkbookEvaluation";
-        note = evalNote;
+        note = entry.Note;
         success = true;
         return;
     end
@@ -81,6 +82,7 @@ if strlength(fallbackExpr) > 0
     [value, time, evalNote, ok] = localEvaluateExpression(fallbackExpr, rawData, entryType);
     if ok
         entry = localPopulateEntry(entry, value, time, fallbackExpr, "FallbackMatch", fallbackNote + " | " + evalNote, true);
+        entry = localApplyExplicitTimeSignalRule(entry, row);
         method = "FallbackMatch";
         note = entry.Note;
         success = true;
@@ -102,6 +104,28 @@ entry.ExpressionUsed = string(expressionUsed);
 entry.Note = string(note);
 entry.Approximate = logical(approximate);
 entry.Confidence = localConfidenceText(method, time, approximate);
+end
+
+function entry = localApplyExplicitTimeSignalRule(entry, row)
+if ~isfield(entry, 'Available') || ~entry.Available
+    return;
+end
+if ~localIsTimeSignalRow(row)
+    return;
+end
+if isempty(entry.Data) || ~(isnumeric(entry.Data) || islogical(entry.Data))
+    return;
+end
+
+candidateTime = double(entry.Data(:));
+if numel(candidateTime) < 2 || ~localIsMonotonic(candidateTime)
+    return;
+end
+
+entry.Time = candidateTime;
+entry.Data = candidateTime;
+entry.Note = strtrim(entry.Note + " Explicit workbook time signal used as reference candidate.");
+entry.Confidence = "High";
 end
 
 function [value, time, note, ok] = localEvaluateExpression(expression, rawData, entryType)
@@ -391,4 +415,27 @@ entry.ExpressionUsed = "";
 entry.EntryType = string(entryType);
 entry.Approximate = false;
 entry.Confidence = "Low";
+end
+
+function tf = localIsTimeSignalRow(row)
+tf = false;
+try
+    if ismember('IsTimeSignal', row.Properties.VariableNames)
+        tf = logical(row.IsTimeSignal(1));
+        if tf
+            return;
+        end
+    end
+catch
+end
+
+descriptionKey = localNormalizeText(row.Description);
+variableKey = localNormalizeText(row.VariableName);
+unitKey = localNormalizeText(row.Unit);
+
+hasTimeText = strcmp(descriptionKey, "time") || strcmp(variableKey, "time") || ...
+    strcmp(variableKey, "timesim") || strcmp(variableKey, "simtime") || ...
+    contains(descriptionKey, "time") || contains(variableKey, "time");
+hasSecondUnit = any(strcmp(unitKey, ["s", "sec", "secs", "second", "seconds"]));
+tf = hasTimeText && (hasSecondUnit || strcmp(descriptionKey, "time"));
 end
