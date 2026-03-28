@@ -184,7 +184,8 @@ tf = false;
 if isnumeric(value) || islogical(value)
     data = double(value(:));
     tf = isvector(value) && numel(data) >= 3 && all(isfinite(data)) && all(diff(data) >= 0) && ...
-        (contains(nameHint, "time") || strcmp(nameHint, "t") || strcmp(nameHint, "tout"));
+        (contains(nameHint, "time") || strcmp(nameHint, "t") || strcmp(nameHint, "tout") || ...
+        strcmp(nameHint, "sec") || strcmp(nameHint, "secs") || strcmp(nameHint, "seconds"));
 elseif localHasTimeDataProperties(value)
     tf = true;
 end

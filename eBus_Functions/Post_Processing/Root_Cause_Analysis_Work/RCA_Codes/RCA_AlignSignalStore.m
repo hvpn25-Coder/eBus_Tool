@@ -102,6 +102,14 @@ for iField = 1:numel(signalFields)
         end
     end
 
+    if ~isscalar(data) && numel(data) == nRef && localShouldPreferDirectSamples(data, signal.AlignedData)
+        signal.AlignedData = double(data(:));
+        signal.AlignedTime = referenceTime;
+        signal.Note = string(signal.Note) + " | Direct sample mapping was kept because recovered time alignment distorted the dynamic signal.";
+        signal.Approximate = true;
+        signal.Confidence = "Medium";
+    end
+
     signalStore.(signalFields{iField}) = signal;
 end
 
@@ -216,6 +224,43 @@ normalized = strings(size(textValue));
 for iValue = 1:numel(textValue)
     normalized(iValue) = lower(regexprep(textValue(iValue), '[^a-zA-Z0-9]', ''));
 end
+end
+
+function tf = localShouldPreferDirectSamples(rawData, alignedData)
+tf = false;
+if isempty(rawData) || isempty(alignedData)
+    return;
+end
+
+rawData = double(rawData(:));
+alignedData = double(alignedData(:));
+commonLength = min(numel(rawData), numel(alignedData));
+rawData = rawData(1:commonLength);
+alignedData = alignedData(1:commonLength);
+
+rawValid = rawData(isfinite(rawData));
+alignedValid = alignedData(isfinite(alignedData));
+if numel(rawValid) < 5 || numel(alignedValid) < 5
+    return;
+end
+
+rawStd = std(rawValid, 0);
+alignedStd = std(alignedValid, 0);
+if ~isfinite(rawStd) || rawStd <= eps
+    return;
+end
+
+validPair = isfinite(rawData) & isfinite(alignedData);
+if ~any(validPair)
+    return;
+end
+
+mae = mean(abs(rawData(validPair) - alignedData(validPair)));
+relativeDistortion = mae / max(rawStd, eps);
+varianceCollapse = alignedStd / max(rawStd, eps);
+
+tf = (varianceCollapse < 0.05 && relativeDistortion > 0.25) || ...
+    (max(abs(alignedValid), [], 'omitnan') < 1e-9 && max(abs(rawValid), [], 'omitnan') > 1e-6);
 end
 
 function [timeVector, wasSanitized] = localSanitizeReferenceTime(timeVector)
