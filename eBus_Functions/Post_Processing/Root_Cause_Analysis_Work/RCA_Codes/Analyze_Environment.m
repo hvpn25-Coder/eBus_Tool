@@ -286,11 +286,21 @@ if any([desiredSpeedSignal.Available, roadSlopeSignal.Available, ambientTempSign
     subplot(2, 2, 3);
     if roadSlopeSignal.Available && any(isfinite(cumulativeElevation_m))
         if any(isfinite(cumulativeDistance_km)) && max(cumulativeDistance_km, [], 'omitnan') > 0
-            plot(cumulativeDistance_km, cumulativeElevation_m, 'Color', config.Plot.Colors.Slope, 'LineWidth', config.Plot.LineWidth);
+            profileX = cumulativeDistance_km;
             xlabel('Distance (km)');
         else
-            plot(t, cumulativeElevation_m, 'Color', config.Plot.Colors.Slope, 'LineWidth', config.Plot.LineWidth);
+            profileX = t;
             xlabel('Time (s)');
+        end
+
+        if ambientTempSignal.Available && any(isfinite(ambientTemp))
+            validProfile = isfinite(profileX) & isfinite(cumulativeElevation_m) & isfinite(ambientTemp);
+            plot(profileX, cumulativeElevation_m, 'Color', config.Plot.Colors.Neutral, 'LineWidth', max(config.Plot.LineWidth - 0.2, 1.0)); hold on;
+            scatter(profileX(validProfile), cumulativeElevation_m(validProfile), 16, ambientTemp(validProfile), 'filled');
+            cb = colorbar;
+            cb.Label.String = 'Ambient temperature (degC)';
+        else
+            plot(profileX, cumulativeElevation_m, 'Color', config.Plot.Colors.Slope, 'LineWidth', config.Plot.LineWidth);
         end
         ylabel('Cumulative elevation (m)');
     else
@@ -302,16 +312,8 @@ if any([desiredSpeedSignal.Available, roadSlopeSignal.Available, ambientTempSign
     subplot(2, 2, 4);
     if roadSlopeSignal.Available && any(isfinite(roadSlope)) && any(isfinite(speedForContext))
         validScatter = isfinite(speedForContext) & isfinite(roadSlope);
-        if ambientTempSignal.Available && any(isfinite(ambientTemp))
-            validScatter = validScatter & isfinite(ambientTemp);
-            scatter(speedForContext(validScatter), roadSlope(validScatter), 14, ambientTemp(validScatter), 'filled');
-            cb = colorbar;
-            cb.Label.String = 'Ambient temperature (degC)';
-        else
-            scatter(speedForContext(validScatter), roadSlope(validScatter), 14, cumulativeDistance_km(validScatter), 'filled');
-            cb = colorbar;
-            cb.Label.String = 'Distance (km)';
-        end
+        scatter(speedForContext(validScatter), roadSlope(validScatter), 14, 'filled', ...
+            'MarkerFaceColor', config.Plot.Colors.Demand, 'MarkerEdgeColor', config.Plot.Colors.Neutral);
         xlabel('Demand speed (km/h)');
         ylabel('Slope (%)');
     else
