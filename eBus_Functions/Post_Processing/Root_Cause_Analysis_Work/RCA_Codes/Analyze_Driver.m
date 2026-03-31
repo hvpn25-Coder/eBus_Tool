@@ -314,184 +314,20 @@ end
 driverTableFolder = outputPaths.Tables;
 localSafeWriteTable(eventTable, fullfile(driverTableFolder, 'Driver_EventSummary.csv'));
 localSafeWriteTable(badEvents, fullfile(driverTableFolder, 'Driver_BadEvents.csv'));
-
-if any(isfinite(desiredSpeed)) || any(isfinite(vehSpeed)) || any(isfinite(accPedal)) || any(isfinite(brkPedal))
-    fig = figure('Color', 'w', 'Position', config.Plot.FigurePosition);
-    subplot(2, 2, 1);
-    if any(isfinite(vehSpeed))
-        plot(t, vehSpeed, 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth); hold on;
-    end
-    if any(isfinite(desiredSpeed))
-        plot(t, desiredSpeed, '--', 'Color', config.Plot.Colors.Demand, 'LineWidth', config.Plot.LineWidth);
-    end
-    title('Driver Demand Versus Vehicle Speed');
-    xlabel('Time (s)');
-    ylabel('Speed (km/h)');
-    speedLegend = localLegendEntries(any(isfinite(vehSpeed)), any(isfinite(desiredSpeed)));
-    if ~isempty(speedLegend)
-        legend(speedLegend, 'Location', 'best');
-    end
-    grid on;
-
-    subplot(2, 2, 2);
-    yyaxis left;
-    plot(t, speedError, 'Color', config.Plot.Colors.Motor, 'LineWidth', config.Plot.LineWidth); hold on;
-    yline(config.Thresholds.DriverTrackingBand_kmh, '--', 'Color', config.Plot.Colors.Neutral);
-    yline(-config.Thresholds.DriverTrackingBand_kmh, '--', 'Color', config.Plot.Colors.Neutral);
-    ylabel('Speed error (km/h)');
-    yyaxis right;
-    if any(isfinite(roadSlope))
-        plot(t, roadSlope, 'Color', config.Plot.Colors.Slope, 'LineWidth', max(config.Plot.LineWidth - 0.2, 1.0));
-        ylabel('Road slope (%)');
-    else
-        ylabel('Road slope (%)');
-    end
-    xlabel('Time (s)');
-    title('Tracking Error and Route Grade Context');
-    grid on;
-
-    subplot(2, 2, 3);
-    legendEntries = {};
-    if any(isfinite(accPedal))
-        plot(t, accPedal, 'Color', config.Plot.Colors.Demand, 'LineWidth', config.Plot.LineWidth); hold on;
-        legendEntries{end + 1} = 'Accelerator';
-    end
-    if any(isfinite(brkPedal))
-        plot(t, brkPedal, 'Color', config.Plot.Colors.Warning, 'LineWidth', config.Plot.LineWidth);
-        legendEntries{end + 1} = 'Brake';
-    end
-    title('Driver Pedal Commands');
-    xlabel('Time (s)');
-    ylabel('Pedal (%)');
-    if ~isempty(legendEntries)
-        legend(legendEntries, 'Location', 'best');
-    end
-    grid on;
-
-    subplot(2, 2, 4);
-    if any(isfinite(torqueDemand)) || any(isfinite(torqueLimit))
-        if any(isfinite(torqueDemand))
-            plot(t, positiveDemand, 'Color', config.Plot.Colors.Demand, 'LineWidth', config.Plot.LineWidth); hold on;
-        end
-        if any(isfinite(torqueActual))
-            plot(t, positiveActual, 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth);
-        end
-        if any(isfinite(torqueLimit))
-            plot(t, torqueLimit, '--', 'Color', config.Plot.Colors.Warning, 'LineWidth', config.Plot.LineWidth);
-        end
-        xlabel('Time (s)');
-        ylabel('Drive torque (Nm)');
-        title('Drive Torque Request, Delivery, and Limit');
-        torqueLegend = localTorqueLegend(any(isfinite(torqueDemand)), any(isfinite(torqueActual)), any(isfinite(torqueLimit)));
-        if ~isempty(torqueLegend)
-            legend(torqueLegend, 'Location', 'best');
-        end
-    elseif any(isfinite(gear))
-        stairs(t, gear, 'Color', config.Plot.Colors.Gear, 'LineWidth', config.Plot.LineWidth);
-        xlabel('Time (s)');
-        ylabel('Gear');
-        title('Current Operating Gear');
-    else
-        text(0.1, 0.5, 'Torque limit and gear context unavailable.', 'Units', 'normalized');
-    end
-    grid on;
-    plotFiles(end + 1) = string(RCA_SaveFigure(fig, fullfile(outputPaths.FiguresSubsystem, 'Driver'), 'Driver_Controller_Overview', config));
-    close(fig);
-end
-
+driverFigureFolder = fullfile(outputPaths.FiguresSubsystem, 'Driver');
 if any(dynamicEventMask)
     dynamicEvents = eventTable(dynamicEventMask, :);
-    fig = figure('Color', 'w', 'Position', config.Plot.FigurePosition);
-
-    subplot(2, 2, 1);
-    stairs(t, localEventCode(sampleEventType), 'Color', config.Plot.Colors.Neutral, 'LineWidth', config.Plot.LineWidth);
-    yticks([0 1 2 3 4]);
-    yticklabels({'Stop', 'Cruise', 'Acceleration', 'Braking', 'Transition'});
-    xlabel('Time (s)');
-    ylabel('Event type');
-    title('Driver Dynamic Event Segmentation');
-    localAddCriteriaBox(gca, sprintf(['Acceleration: accel > %.2f m/s^2 or positive error with accelerator\n', ...
-        'Braking: accel < %.2f m/s^2 or brake demand active\n', ...
-        'Cruise: low accel and low error transients'], ...
-        0.5 * config.Thresholds.SignificantAccel_mps2, 0.5 * config.Thresholds.SignificantDecel_mps2), config);
-    grid on;
-
-    subplot(2, 2, 2);
-    eventTypes = ["Acceleration", "Braking", "Cruise"];
-    counts = zeros(size(eventTypes));
-    shares = zeros(size(eventTypes));
-    totalDynamicTime = max(sum(dynamicEvents.Duration_s, 'omitnan'), eps);
-    for iType = 1:numel(eventTypes)
-        typeMask = dynamicEvents.EventType == eventTypes(iType);
-        counts(iType) = sum(typeMask);
-        shares(iType) = 100 * sum(dynamicEvents.Duration_s(typeMask), 'omitnan') / totalDynamicTime;
-    end
-    xEvent = 1:numel(eventTypes);
-    yyaxis left;
-    bar(xEvent, counts, 'FaceColor', config.Plot.Colors.Vehicle);
-    ylabel('Count');
-    yyaxis right;
-    plot(xEvent, shares, '-o', 'Color', config.Plot.Colors.Demand, 'LineWidth', config.Plot.LineWidth);
-    ylabel('Time share (%)');
-    xticks(xEvent);
-    xticklabels(cellstr(eventTypes));
-    title('Driver Event Counts and Time Share');
-    grid on;
-
-    subplot(2, 2, 3);
-    hold on;
-    localScatterEvents(dynamicEvents(dynamicEvents.EventType == "Acceleration", :), config.Plot.Colors.Demand);
-    localScatterEvents(dynamicEvents(dynamicEvents.EventType == "Braking", :), config.Plot.Colors.Warning);
-    localScatterEvents(dynamicEvents(dynamicEvents.EventType == "Cruise", :), config.Plot.Colors.Vehicle);
-    xlabel('Mean road slope (%)');
-    ylabel('Mean abs speed error (km/h)');
-    title('Event Error Versus Route Severity');
-    legend({'Acceleration', 'Braking', 'Cruise'}, 'Location', 'best');
-    grid on;
-
-    subplot(2, 2, 4);
-    rankingTable = dynamicEvents(dynamicEvents.Severity >= config.Thresholds.DriverBadEventSeverity, :);
-    if ~isempty(rankingTable)
-        rankingTable = sortrows(rankingTable, {'Severity', 'MeanAbsSpeedError_kmh'}, {'descend', 'descend'});
-        rankingTable = rankingTable(1:min(5, height(rankingTable)), :);
-        barh(rankingTable.Severity, 'FaceColor', config.Plot.Colors.Warning);
-        set(gca, 'YDir', 'reverse');
-        rankingLabels = strings(height(rankingTable), 1);
-        for iRow = 1:height(rankingTable)
-            rankingLabels(iRow) = sprintf('E%d %s', rankingTable.EventID(iRow), rankingTable.EventType(iRow));
-        end
-        yticks(1:height(rankingTable));
-        set(gca, 'YTickLabel', cellstr(rankingLabels));
-        xlabel('Severity');
-        title('Worst Driver Events');
-        localAddCriteriaBox(gca, sprintf('Bad-event threshold: severity >= %.2f', config.Thresholds.DriverBadEventSeverity), config);
-    else
-        text(0.1, 0.5, 'No bad driver events exceeded the configured severity threshold.', 'Units', 'normalized');
-    end
-    grid on;
-
-    plotFiles(end + 1) = string(RCA_SaveFigure(fig, fullfile(outputPaths.FiguresSubsystem, 'Driver'), 'Driver_Event_Analysis', config));
-    close(fig);
+else
+    dynamicEvents = localEmptyDriverEventTable();
 end
 
-if exist('badEvents', 'var') && ~isempty(badEvents)
-    dashboardEvents = badEvents(1:min(3, height(badEvents)), :);
-    fig = figure('Color', 'w', 'Position', config.Plot.FigurePosition);
-    for iDash = 1:height(dashboardEvents)
-        idx = dashboardEvents.StartIndex(iDash):dashboardEvents.EndIndex(iDash);
-        subplot(height(dashboardEvents), 1, iDash);
-        plot(t(idx), vehSpeed(idx), 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth); hold on;
-        plot(t(idx), desiredSpeed(idx), '--', 'Color', config.Plot.Colors.Demand, 'LineWidth', config.Plot.LineWidth);
-        ylabel('Speed (km/h)');
-        title(sprintf('Event %d: %s | Cause: %s', dashboardEvents.EventID(iDash), dashboardEvents.EventType(iDash), dashboardEvents.LikelyCause(iDash)));
-        if iDash == height(dashboardEvents)
-            xlabel('Time (s)');
-        end
-        grid on;
-    end
-    plotFiles(end + 1) = string(RCA_SaveFigure(fig, fullfile(outputPaths.FiguresSubsystem, 'Driver'), 'Driver_Bad_Event_Dashboard', config));
-    close(fig);
-end
+plotFiles = localAppendPlotFile(plotFiles, localPlotDriverOverview(driverFigureFolder, t, desiredSpeed, vehSpeed, speedError, accPedal, brkPedal, gear, roadSlope, config));
+plotFiles = localAppendPlotFile(plotFiles, localPlotDriverEventHighlights(driverFigureFolder, t, desiredSpeed, vehSpeed, speedError, dynamicEvents, config));
+plotFiles = localAppendPlotFile(plotFiles, localPlotDriverErrorMaps(driverFigureFolder, gear, roadSlope, speedError, config));
+plotFiles = localAppendPlotFile(plotFiles, localPlotDriverGearwiseTracking(driverFigureFolder, t, desiredSpeed, vehSpeed, speedError, gear, config));
+plotFiles = localAppendPlotFile(plotFiles, localPlotDriverBadSegments(driverFigureFolder, t, desiredSpeed, vehSpeed, speedError, analysisData.BadSegmentTable, config));
+plotFiles = [plotFiles; reshape(localPlotDriverWorstSegments(driverFigureFolder, t, desiredSpeed, vehSpeed, speedError, accPedal, brkPedal, gear, roadSlope, analysisData.SegmentSummary, analysisData.BadSegmentTable, config), [], 1)]; %#ok<AGROW>
+plotFiles = plotFiles(plotFiles ~= "");
 
 result.Available = ~isempty(rows);
 result.KPITable = RCA_FinalizeKPITable(rows);
@@ -798,6 +634,386 @@ function localSafeWriteTable(tableValue, filePath)
 try
     writetable(tableValue, filePath);
 catch
+end
+end
+
+function plotFile = localPlotDriverOverview(outputFolder, t, desiredSpeed, vehSpeed, speedError, accPedal, brkPedal, gear, roadSlope, config)
+plotFile = "";
+if ~(any(isfinite(desiredSpeed)) || any(isfinite(vehSpeed)) || any(isfinite(accPedal)) || any(isfinite(brkPedal)) || any(isfinite(gear)))
+    return;
+end
+
+fig = figure('Color', 'w', 'Position', config.Plot.FigurePosition);
+
+subplot(4, 1, 1);
+hold on;
+if any(isfinite(desiredSpeed))
+    plot(t, desiredSpeed, 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth);
+end
+if any(isfinite(vehSpeed))
+    plot(t, vehSpeed, '--', 'Color', config.Plot.Colors.Demand, 'LineWidth', config.Plot.LineWidth);
+end
+title('Reference vs Actual Speed');
+ylabel('Speed [km/h]');
+legend(localSpeedLegend(any(isfinite(desiredSpeed)), any(isfinite(vehSpeed))), 'Location', 'best');
+grid on;
+
+subplot(4, 1, 2);
+plot(t, speedError, 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth); hold on;
+yline(config.Thresholds.DriverTrackingBand_kmh, '--', 'Color', [0.6 0.6 0.6], 'LineWidth', 1.0);
+yline(-config.Thresholds.DriverTrackingBand_kmh, '--', 'Color', [0.6 0.6 0.6], 'LineWidth', 1.0);
+ylabel('Error [km/h]');
+title('Speed Tracking Error');
+grid on;
+
+subplot(4, 1, 3);
+hold on;
+if any(isfinite(accPedal))
+    plot(t, accPedal, 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth);
+end
+if any(isfinite(brkPedal))
+    plot(t, brkPedal, 'Color', config.Plot.Colors.Warning, 'LineWidth', config.Plot.LineWidth);
+end
+ylabel('Pedal [%]');
+title('Pedal Commands');
+legend(localPedalLegend(any(isfinite(accPedal)), any(isfinite(brkPedal))), 'Location', 'best');
+grid on;
+
+subplot(4, 1, 4);
+yyaxis left;
+if any(isfinite(gear))
+    stairs(t, gear, 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth);
+end
+ylabel('Gear [-]');
+yyaxis right;
+if any(isfinite(roadSlope))
+    plot(t, roadSlope, 'Color', config.Plot.Colors.Slope, 'LineWidth', config.Plot.LineWidth);
+end
+ylabel('Slope [%]');
+xlabel('Time [s]');
+title('Gear & Road Slope');
+grid on;
+
+plotFile = string(RCA_SaveFigure(fig, outputFolder, 'Driver_Tracking_Overview', config));
+close(fig);
+end
+
+function plotFile = localPlotDriverEventHighlights(outputFolder, t, desiredSpeed, vehSpeed, speedError, eventTable, config)
+plotFile = "";
+if isempty(eventTable) || height(eventTable) == 0
+    return;
+end
+
+accelEvents = eventTable(eventTable.EventType == "Acceleration", :);
+brakeEvents = eventTable(eventTable.EventType == "Braking", :);
+if isempty(accelEvents) && isempty(brakeEvents)
+    return;
+end
+
+fig = figure('Color', 'w', 'Position', config.Plot.FigurePosition);
+
+subplot(2, 1, 1);
+hold on;
+refHandle = plot(t, desiredSpeed, 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth);
+actHandle = plot(t, vehSpeed, 'Color', config.Plot.Colors.Demand, 'LineWidth', config.Plot.LineWidth);
+accPatch = localShadeIntervals(gca, accelEvents.StartTime_s, accelEvents.EndTime_s, [0.80 0.93 0.80], 0.65);
+brkPatch = localShadeIntervals(gca, brakeEvents.StartTime_s, brakeEvents.EndTime_s, [0.82 0.92 0.97], 0.70);
+title('Reference vs Actual Speed (Accel/Brake Events Highlighted)');
+ylabel('Speed [km/h]');
+[eventLegendHandles, eventLegendLabels] = localEventLegend(refHandle, actHandle, accPatch, brkPatch);
+legend(eventLegendHandles, eventLegendLabels, 'Location', 'best');
+grid on;
+
+subplot(2, 1, 2);
+hold on;
+plot(t, speedError, 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth);
+yline(config.Thresholds.DriverTrackingBand_kmh, '--', 'Color', [0.6 0.6 0.6], 'LineWidth', 1.0);
+yline(-config.Thresholds.DriverTrackingBand_kmh, '--', 'Color', [0.6 0.6 0.6], 'LineWidth', 1.0);
+localShadeIntervals(gca, accelEvents.StartTime_s, accelEvents.EndTime_s, [0.80 0.93 0.80], 0.65);
+localShadeIntervals(gca, brakeEvents.StartTime_s, brakeEvents.EndTime_s, [0.82 0.92 0.97], 0.70);
+title('Speed Error (Accel/Brake Events Highlighted)');
+ylabel('Error [km/h]');
+xlabel('Time [s]');
+grid on;
+
+plotFile = string(RCA_SaveFigure(fig, outputFolder, 'Driver_Event_Highlights', config));
+close(fig);
+end
+
+function plotFile = localPlotDriverErrorMaps(outputFolder, gear, roadSlope, speedError, config)
+plotFile = "";
+valid = isfinite(gear) & isfinite(roadSlope) & isfinite(speedError);
+if ~any(valid)
+    return;
+end
+
+gearValues = unique(gear(valid));
+gearValues = gearValues(:)';
+slopeEdges = [-Inf, -config.Thresholds.SteepSlope_pct, -config.Thresholds.UphillSlope_pct, ...
+    config.Thresholds.UphillSlope_pct, config.Thresholds.SteepSlope_pct, Inf];
+slopeLabels = {sprintf('< -%.1f', config.Thresholds.SteepSlope_pct), ...
+    sprintf('-%.1f to -%.1f', config.Thresholds.SteepSlope_pct, config.Thresholds.UphillSlope_pct), ...
+    sprintf('|slope| <= %.1f', config.Thresholds.UphillSlope_pct), ...
+    sprintf('%.1f to %.1f', config.Thresholds.UphillSlope_pct, config.Thresholds.SteepSlope_pct), ...
+    sprintf('> %.1f', config.Thresholds.SteepSlope_pct)};
+
+heatmapData = NaN(numel(gearValues), numel(slopeEdges) - 1);
+meanErrorPerGear = NaN(numel(gearValues), 1);
+for iGear = 1:numel(gearValues)
+    gearMask = valid & gear == gearValues(iGear);
+    meanErrorPerGear(iGear) = mean(speedError(gearMask), 'omitnan');
+    for iBin = 1:(numel(slopeEdges) - 1)
+        binMask = gearMask & roadSlope >= slopeEdges(iBin) & roadSlope < slopeEdges(iBin + 1);
+        if iBin == numel(slopeEdges) - 1
+            binMask = gearMask & roadSlope >= slopeEdges(iBin);
+        end
+        if any(binMask)
+            heatmapData(iGear, iBin) = mean(abs(speedError(binMask)), 'omitnan');
+        end
+    end
+end
+
+fig = figure('Color', 'w', 'Position', config.Plot.FigurePosition);
+subplot(2, 2, [1 2]);
+imagesc(heatmapData);
+set(gca, 'YTick', 1:numel(gearValues), 'YTickLabel', arrayfun(@(x) sprintf('%.0f', x), gearValues, 'UniformOutput', false));
+set(gca, 'XTick', 1:numel(slopeLabels), 'XTickLabel', slopeLabels);
+xlabel('Slope Range');
+ylabel('Gear');
+title('Mean Velocity Error Heatmap');
+cb = colorbar;
+cb.Label.String = 'Mean |speed error| [km/h]';
+grid on;
+
+subplot(2, 2, 3);
+scatter(roadSlope(valid), speedError(valid), 16, config.Plot.Colors.Vehicle, 'filled');
+xlabel('Slope');
+ylabel('Velocity Error');
+title('Error vs Slope');
+grid on;
+
+subplot(2, 2, 4);
+bar(gearValues, meanErrorPerGear, 'FaceColor', config.Plot.Colors.Vehicle);
+xlabel('Gear');
+ylabel('Mean Error');
+title('Mean Error per Gear');
+grid on;
+
+plotFile = string(RCA_SaveFigure(fig, outputFolder, 'Driver_Error_Maps', config));
+close(fig);
+end
+
+function plotFile = localPlotDriverGearwiseTracking(outputFolder, t, desiredSpeed, vehSpeed, speedError, gear, config)
+plotFile = "";
+validGear = isfinite(gear);
+if ~any(validGear)
+    return;
+end
+
+gearValues = unique(gear(validGear));
+gearValues = gearValues(:)';
+fig = figure('Color', 'w', 'Position', [100 100 1300 max(500, 260 * numel(gearValues))]);
+
+for iGear = 1:numel(gearValues)
+    mask = gear == gearValues(iGear);
+    gearRef = NaN(size(desiredSpeed));
+    gearAct = NaN(size(vehSpeed));
+    gearErr = NaN(size(speedError));
+    gearRef(mask) = desiredSpeed(mask);
+    gearAct(mask) = vehSpeed(mask);
+    gearErr(mask) = speedError(mask);
+
+    subplot(numel(gearValues), 1, iGear);
+    yyaxis left;
+    plot(t, gearRef, 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth); hold on;
+    plot(t, gearAct, '--', 'Color', config.Plot.Colors.Demand, 'LineWidth', config.Plot.LineWidth);
+    ylabel('Speed [km/h]');
+    yyaxis right;
+    plot(t, gearErr, 'Color', config.Plot.Colors.Warning, 'LineWidth', max(config.Plot.LineWidth - 0.1, 1.0));
+    ylabel('Error [km/h]');
+    title(sprintf('Gear %.0f: Speed & Error', gearValues(iGear)));
+    if iGear == numel(gearValues)
+        xlabel('Time [s]');
+    end
+    grid on;
+end
+
+plotFile = string(RCA_SaveFigure(fig, outputFolder, 'Driver_Gearwise_Tracking', config));
+close(fig);
+end
+
+function plotFile = localPlotDriverBadSegments(outputFolder, t, desiredSpeed, vehSpeed, speedError, badSegmentTable, config)
+plotFile = "";
+if isempty(badSegmentTable) || height(badSegmentTable) == 0
+    return;
+end
+
+fig = figure('Color', 'w', 'Position', config.Plot.FigurePosition);
+
+subplot(2, 1, 1);
+hold on;
+refHandle = plot(t, desiredSpeed, 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth);
+actHandle = plot(t, vehSpeed, 'Color', config.Plot.Colors.Demand, 'LineWidth', config.Plot.LineWidth);
+badPatch = localShadeIntervals(gca, badSegmentTable.StartTime_s, badSegmentTable.EndTime_s, [0.97 0.88 0.88], 0.80);
+title('Reference vs Actual Speed (Bad Segments Highlighted)');
+ylabel('Speed [km/h]');
+legend([refHandle, actHandle, badPatch], {'v_{ref}', 'v_{act}', 'Bad segments'}, 'Location', 'best');
+grid on;
+
+subplot(2, 1, 2);
+hold on;
+plot(t, speedError, 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth);
+yline(config.Thresholds.DriverTrackingBand_kmh, '--', 'Color', [0.6 0.6 0.6], 'LineWidth', 1.0);
+yline(-config.Thresholds.DriverTrackingBand_kmh, '--', 'Color', [0.6 0.6 0.6], 'LineWidth', 1.0);
+localShadeIntervals(gca, badSegmentTable.StartTime_s, badSegmentTable.EndTime_s, [0.97 0.88 0.88], 0.80);
+title('Speed Error (Bad Segments Highlighted)');
+ylabel('Error [km/h]');
+xlabel('Time [s]');
+grid on;
+
+plotFile = string(RCA_SaveFigure(fig, outputFolder, 'Driver_Bad_Segments', config));
+close(fig);
+end
+
+function plotFiles = localPlotDriverWorstSegments(outputFolder, t, desiredSpeed, vehSpeed, speedError, accPedal, brkPedal, gear, roadSlope, segmentSummary, badSegmentTable, config)
+plotFiles = strings(0, 1);
+if isempty(segmentSummary) || height(segmentSummary) == 0
+    return;
+end
+
+if isempty(badSegmentTable) || height(badSegmentTable) == 0
+    candidateSegments = segmentSummary(segmentSummary.IsPoorPerformance | segmentSummary.IsHighLoss, :);
+else
+    candidateSegments = segmentSummary(ismember(segmentSummary.SegmentID, badSegmentTable.SegmentID), :);
+end
+if isempty(candidateSegments)
+    [~, order] = sort(segmentSummary.PerformanceSeverity, 'descend');
+    candidateSegments = segmentSummary(order(1:min(3, height(segmentSummary))), :);
+else
+    candidateSegments = sortrows(candidateSegments, {'PerformanceSeverity', 'TrackingMAE_kmh'}, {'descend', 'descend'});
+    candidateSegments = candidateSegments(1:min(3, height(candidateSegments)), :);
+end
+
+for iSeg = 1:height(candidateSegments)
+    idx = candidateSegments.StartIndex(iSeg):candidateSegments.EndIndex(iSeg);
+    fig = figure('Color', 'w', 'Position', config.Plot.FigurePosition);
+
+    subplot(4, 1, 1);
+    hold on;
+    plot(t(idx), desiredSpeed(idx), 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth);
+    plot(t(idx), vehSpeed(idx), 'Color', config.Plot.Colors.Demand, 'LineWidth', config.Plot.LineWidth);
+    localShadeIntervals(gca, candidateSegments.StartTime_s(iSeg), candidateSegments.EndTime_s(iSeg), [0.97 0.92 0.92], 0.85);
+    ylabel('Speed [km/h]');
+    title(sprintf('Segment %d: t=%.1f - %.1f s (dur=%.2f s, max|e|=%.1f km/h)', ...
+        candidateSegments.SegmentID(iSeg), candidateSegments.StartTime_s(iSeg), candidateSegments.EndTime_s(iSeg), ...
+        candidateSegments.Duration_s(iSeg), max(abs(speedError(idx)), [], 'omitnan')));
+    legend({'v_{ref}', 'v_{act}'}, 'Location', 'best');
+    grid on;
+
+    subplot(4, 1, 2);
+    plot(t(idx), speedError(idx), 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth); hold on;
+    yline(config.Thresholds.DriverTrackingBand_kmh, '--', 'Color', [0.6 0.6 0.6], 'LineWidth', 1.0);
+    yline(-config.Thresholds.DriverTrackingBand_kmh, '--', 'Color', [0.6 0.6 0.6], 'LineWidth', 1.0);
+    ylabel('Error [km/h]');
+    title('Speed Error');
+    grid on;
+
+    subplot(4, 1, 3);
+    hold on;
+    plot(t(idx), accPedal(idx), 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth);
+    plot(t(idx), brkPedal(idx), 'Color', config.Plot.Colors.Warning, 'LineWidth', config.Plot.LineWidth);
+    ylabel('Pedal [%]');
+    title('Accel / Brake Commands');
+    legend({'Accel', 'Brake'}, 'Location', 'best');
+    grid on;
+
+    subplot(4, 1, 4);
+    yyaxis left;
+    stairs(t(idx), gear(idx), 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth);
+    ylabel('Gear [-]');
+    yyaxis right;
+    plot(t(idx), roadSlope(idx), 'Color', config.Plot.Colors.Slope, 'LineWidth', config.Plot.LineWidth);
+    ylabel('Slope [%]');
+    xlabel('Time [s]');
+    title(sprintf('Gear & Slope (dominant gear: %.0f, slope: %s)', ...
+        candidateSegments.DominantGear(iSeg), candidateSegments.GradeClass(iSeg)));
+    grid on;
+
+    plotFiles(end + 1, 1) = string(RCA_SaveFigure(fig, outputFolder, sprintf('Driver_Worst_Segment_%02d', iSeg), config)); %#ok<AGROW>
+    close(fig);
+end
+end
+
+function plotFiles = localAppendPlotFile(plotFiles, plotFile)
+if nargin < 2 || strlength(string(plotFile)) == 0
+    return;
+end
+plotFiles(end + 1, 1) = string(plotFile);
+end
+
+function patchHandle = localShadeIntervals(axisHandle, startTimes, endTimes, colorValue, alphaValue)
+patchHandle = gobjects(1, 1);
+startTimes = double(startTimes(:));
+endTimes = double(endTimes(:));
+if isempty(startTimes) || isempty(endTimes)
+    return;
+end
+valid = isfinite(startTimes) & isfinite(endTimes) & endTimes >= startTimes;
+startTimes = startTimes(valid);
+endTimes = endTimes(valid);
+if isempty(startTimes)
+    return;
+end
+yLimits = ylim(axisHandle);
+for iInt = 1:numel(startTimes)
+    currentPatch = patch(axisHandle, [startTimes(iInt) endTimes(iInt) endTimes(iInt) startTimes(iInt)], ...
+        [yLimits(1) yLimits(1) yLimits(2) yLimits(2)], colorValue, ...
+        'FaceAlpha', alphaValue, 'EdgeColor', 'none');
+    if iInt == 1
+        patchHandle = currentPatch;
+    end
+end
+uistack(patchHandle, 'bottom');
+end
+
+function entries = localSpeedLegend(hasReference, hasActual)
+entries = {};
+if hasReference
+    entries{end + 1} = 'v_{ref}';
+end
+if hasActual
+    entries{end + 1} = 'v_{act}';
+end
+end
+
+function entries = localPedalLegend(hasAccel, hasBrake)
+entries = {};
+if hasAccel
+    entries{end + 1} = 'Accel';
+end
+if hasBrake
+    entries{end + 1} = 'Brake';
+end
+end
+
+function [handles, labels] = localEventLegend(refHandle, actHandle, accPatch, brkPatch)
+handles = [];
+labels = {};
+if isgraphics(refHandle)
+    handles(end + 1) = refHandle; %#ok<AGROW>
+    labels{end + 1} = 'v_{ref}'; %#ok<AGROW>
+end
+if isgraphics(actHandle)
+    handles(end + 1) = actHandle; %#ok<AGROW>
+    labels{end + 1} = 'v_{act}'; %#ok<AGROW>
+end
+if isgraphics(accPatch)
+    handles(end + 1) = accPatch; %#ok<AGROW>
+    labels{end + 1} = 'Accel events'; %#ok<AGROW>
+end
+if isgraphics(brkPatch)
+    handles(end + 1) = brkPatch; %#ok<AGROW>
+    labels{end + 1} = 'Brake events'; %#ok<AGROW>
 end
 end
 
