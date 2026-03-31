@@ -57,14 +57,22 @@ catch wordException
         'Microsoft Word automation could not be started: %s', wordException.message);
 end
 
-templatePath = fullfile(outputFolder, 'eBus_Simulation_Root_Cause_Analysis_Report_Template.docx');
-samplePath = fullfile(outputFolder, 'eBus_Simulation_Root_Cause_Analysis_Report_Sample.docx');
 reportPath = fullfile(outputFolder, 'eBus_Simulation_Root_Cause_Analysis_Report.docx');
+templatePath = "";
+samplePath = "";
 
 try
-    localCreateReportDocument(wordApp, reportData, templatePath, 'template');
-    localCreateReportDocument(wordApp, reportData, samplePath, 'sample');
     localCreateReportDocument(wordApp, reportData, reportPath, 'report');
+    if reportData.Options.CreateSupportingTemplateFiles
+        supportFolder = fullfile(outputFolder, 'supporting_templates');
+        if ~exist(supportFolder, 'dir')
+            mkdir(supportFolder);
+        end
+        templatePath = fullfile(supportFolder, 'eBus_Simulation_Root_Cause_Analysis_Report_Template.docx');
+        samplePath = fullfile(supportFolder, 'eBus_Simulation_Root_Cause_Analysis_Report_Sample.docx');
+        localCreateReportDocument(wordApp, reportData, templatePath, 'template');
+        localCreateReportDocument(wordApp, reportData, samplePath, 'sample');
+    end
 catch reportException
     localCleanupWord(wordApp);
     rethrow(reportException);
@@ -81,8 +89,12 @@ reportOutput.Source = sourceInfo;
 
 fprintf('\nWord report generation completed.\n');
 fprintf('  Report   : %s\n', reportPath);
-fprintf('  Template : %s\n', templatePath);
-fprintf('  Sample   : %s\n', samplePath);
+if strlength(templatePath) > 0
+    fprintf('  Template : %s\n', templatePath);
+end
+if strlength(samplePath) > 0
+    fprintf('  Sample   : %s\n', samplePath);
+end
 end
 
 function options = localNormalizeOptions(options)
@@ -102,6 +114,8 @@ defaults.MaxSubsystemFigures = 2;
 defaults.TemplateSubtitle = "Vehicle-Level and Subsystem-Level Technical Assessment";
 defaults.PlaceholderTag = "[Insert]";
 defaults.DateString = string(datetime('now', 'Format', 'dd-MMM-yyyy'));
+defaults.CreateSupportingTemplateFiles = false;
+defaults.ActiveSubsystemReportScope = ["ENVIRONMENT", "DRIVER"];
 
 fields = fieldnames(defaults);
 for iField = 1:numel(fields)
@@ -941,13 +955,20 @@ function localWriteSubsystemSection(doc, selection, reportData, state)
 localAddHeading(selection, '12. Subsystem-Level Root Cause Analysis', 1);
 
 subsystems = reportData.SubsystemResults;
-preferredOrder = ["DRIVER", "BATTERY", "BATTERYMANAGEMENTSYSTEM", "ELECTRICDRIVE", ...
-    "TRANSMISSION", "PNEUMATICBRAKESYSTEM", "AUXILIARYLOAD", "ENVIRONMENT", ...
-    "POWERTRAINCONTROLLER", "FINALDRIVE", "VEHICLEDYNAMICS"];
+preferredOrder = string(reportData.Options.ActiveSubsystemReportScope(:)');
+
+if ~isempty(subsystems) && ~isempty(preferredOrder)
+    keepMask = false(numel(subsystems), 1);
+    for iSub = 1:numel(subsystems)
+        normalizedName = upper(regexprep(string(subsystems(iSub).Name), '[^A-Za-z0-9]', ''));
+        keepMask(iSub) = any(preferredOrder == normalizedName);
+    end
+    subsystems = subsystems(keepMask);
+end
 
 if isempty(subsystems)
     localAddHeading(selection, '12.1 Subsystem RCA Placeholder', 2);
-    selection.TypeText('[Insert subsystem-level RCA findings, signals used, KPIs, issue patterns, and recommended actions.]');
+    selection.TypeText('[Insert subsystem-level RCA findings for Environment and Driver, including KPI tables, engineering interpretation, and supporting plots.]');
     selection.TypeParagraph;
     return;
 end
