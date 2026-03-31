@@ -314,6 +314,21 @@ end
 driverTableFolder = outputPaths.Tables;
 localSafeWriteTable(eventTable, fullfile(driverTableFolder, 'Driver_EventSummary.csv'));
 localSafeWriteTable(badEvents, fullfile(driverTableFolder, 'Driver_BadEvents.csv'));
+driverBadSegments = localBuildDriverBadSegmentTable(t, desiredSpeed, vehSpeed, speedError, accPedal, brkPedal, gear, roadSlope, config);
+localSafeWriteTable(driverBadSegments, fullfile(driverTableFolder, 'Driver_TrackingBadSegments.csv'));
+if ~isempty(driverBadSegments)
+    badSegmentTimeShare = 100 * sum(driverBadSegments.Duration_s, 'omitnan') / max(t(end) - t(1), eps);
+    rows = RCA_AddKPI(rows, 'Driver Bad Segment Count', height(driverBadSegments), 'count', 'RootCause', 'Driver', ...
+        'veh_des_vel + veh_vel', ...
+        sprintf('|speed error| >= %.1f km/h for at least %.1f s.', config.Thresholds.DriverBadSegmentError_kmh, config.Thresholds.DriverBadSegmentMinDuration_s));
+    rows = RCA_AddKPI(rows, 'Driver Bad Segment Time Share', badSegmentTimeShare, '%', 'RootCause', 'Driver', ...
+        'veh_des_vel + veh_vel + time', ...
+        'Share of trip time occupied by threshold-based driver bad segments.');
+    summary(end + 1) = sprintf(['Driver bad-segment detection uses |speed error| >= %.1f km/h for at least %.1f s. ', ...
+        '%d bad segments were found, covering %.1f%% of trip time.'], ...
+        config.Thresholds.DriverBadSegmentError_kmh, config.Thresholds.DriverBadSegmentMinDuration_s, ...
+        height(driverBadSegments), badSegmentTimeShare);
+end
 driverFigureFolder = fullfile(outputPaths.FiguresSubsystem, 'Driver');
 if any(dynamicEventMask)
     dynamicEvents = eventTable(dynamicEventMask, :);
@@ -325,8 +340,8 @@ plotFiles = localAppendPlotFile(plotFiles, localPlotDriverOverview(driverFigureF
 plotFiles = localAppendPlotFile(plotFiles, localPlotDriverEventHighlights(driverFigureFolder, t, desiredSpeed, vehSpeed, speedError, dynamicEvents, config));
 plotFiles = localAppendPlotFile(plotFiles, localPlotDriverErrorMaps(driverFigureFolder, gear, roadSlope, speedError, config));
 plotFiles = localAppendPlotFile(plotFiles, localPlotDriverGearwiseTracking(driverFigureFolder, t, desiredSpeed, vehSpeed, speedError, gear, config));
-plotFiles = localAppendPlotFile(plotFiles, localPlotDriverBadSegments(driverFigureFolder, t, desiredSpeed, vehSpeed, speedError, analysisData.BadSegmentTable, config));
-plotFiles = [plotFiles; reshape(localPlotDriverWorstSegments(driverFigureFolder, t, desiredSpeed, vehSpeed, speedError, accPedal, brkPedal, gear, roadSlope, analysisData.SegmentSummary, analysisData.BadSegmentTable, config), [], 1)]; %#ok<AGROW>
+plotFiles = localAppendPlotFile(plotFiles, localPlotDriverBadSegments(driverFigureFolder, t, desiredSpeed, vehSpeed, speedError, driverBadSegments, config));
+plotFiles = [plotFiles; reshape(localPlotDriverWorstSegments(driverFigureFolder, t, desiredSpeed, vehSpeed, speedError, accPedal, brkPedal, gear, roadSlope, driverBadSegments, config), [], 1)]; %#ok<AGROW>
 plotFiles = plotFiles(plotFiles ~= "");
 
 result.Available = ~isempty(rows);
@@ -630,11 +645,54 @@ tableValue = cell2table(cell(0, 32), 'VariableNames', {'EventID', 'StartIndex', 
     'ErrorSignChangeRate_per_s', 'Severity', 'LikelyCause', 'ConfidenceNote', 'TuningHint'});
 end
 
+function tableValue = localEmptyDriverBadSegmentTable()
+tableValue = cell2table(cell(0, 13), 'VariableNames', {'DriverSegmentID', 'StartIndex', 'EndIndex', 'StartTime_s', 'EndTime_s', ...
+    'Duration_s', 'MaxAbsError_kmh', 'MeanAbsError_kmh', 'MeanDesiredSpeed_kmh', 'MeanVehicleSpeed_kmh', ...
+    'DominantGear', 'GradeClass', 'MeanSlope_pct'});
+end
+
 function localSafeWriteTable(tableValue, filePath)
 try
     writetable(tableValue, filePath);
 catch
 end
+end
+
+function badSegmentTable = localBuildDriverBadSegmentTable(t, desiredSpeed, vehSpeed, speedError, accPedal, brkPedal, gear, roadSlope, config)
+badSegmentTable = localEmptyDriverBadSegmentTable();
+if isempty(t) || ~any(isfinite(speedError))
+    return;
+end
+
+errorMask = isfinite(speedError) & abs(speedError) >= config.Thresholds.DriverBadSegmentError_kmh;
+startIdx = find(errorMask & ~[false; errorMask(1:end-1)]);
+endIdx = find(errorMask & ~[errorMask(2:end); false]);
+if isempty(startIdx)
+    return;
+end
+
+rows = cell(0, 13);
+for iSeg = 1:numel(startIdx)
+    idx = startIdx(iSeg):endIdx(iSeg);
+    duration_s = max(t(endIdx(iSeg)) - t(startIdx(iSeg)), 0);
+    if duration_s < config.Thresholds.DriverBadSegmentMinDuration_s
+        continue;
+    end
+    meanSlope = mean(roadSlope(idx), 'omitnan');
+    rows(end + 1, :) = { ...
+        size(rows, 1) + 1, startIdx(iSeg), endIdx(iSeg), t(startIdx(iSeg)), t(endIdx(iSeg)), duration_s, ...
+        max(abs(speedError(idx)), [], 'omitnan'), mean(abs(speedError(idx)), 'omitnan'), ...
+        mean(desiredSpeed(idx), 'omitnan'), mean(vehSpeed(idx), 'omitnan'), ...
+        localDominantValue(gear(idx)), localGradeClass(meanSlope, config), meanSlope}; %#ok<AGROW>
+end
+
+if isempty(rows)
+    return;
+end
+
+badSegmentTable = cell2table(rows, 'VariableNames', {'DriverSegmentID', 'StartIndex', 'EndIndex', 'StartTime_s', 'EndTime_s', ...
+    'Duration_s', 'MaxAbsError_kmh', 'MeanAbsError_kmh', 'MeanDesiredSpeed_kmh', 'MeanVehicleSpeed_kmh', ...
+    'DominantGear', 'GradeClass', 'MeanSlope_pct'});
 end
 
 function plotFile = localPlotDriverOverview(outputFolder, t, desiredSpeed, vehSpeed, speedError, accPedal, brkPedal, gear, roadSlope, config)
@@ -875,24 +933,14 @@ plotFile = string(RCA_SaveFigure(fig, outputFolder, 'Driver_Bad_Segments', confi
 close(fig);
 end
 
-function plotFiles = localPlotDriverWorstSegments(outputFolder, t, desiredSpeed, vehSpeed, speedError, accPedal, brkPedal, gear, roadSlope, segmentSummary, badSegmentTable, config)
+function plotFiles = localPlotDriverWorstSegments(outputFolder, t, desiredSpeed, vehSpeed, speedError, accPedal, brkPedal, gear, roadSlope, badSegmentTable, config)
 plotFiles = strings(0, 1);
-if isempty(segmentSummary) || height(segmentSummary) == 0
+if isempty(badSegmentTable) || height(badSegmentTable) == 0
     return;
 end
 
-if isempty(badSegmentTable) || height(badSegmentTable) == 0
-    candidateSegments = segmentSummary(segmentSummary.IsPoorPerformance | segmentSummary.IsHighLoss, :);
-else
-    candidateSegments = segmentSummary(ismember(segmentSummary.SegmentID, badSegmentTable.SegmentID), :);
-end
-if isempty(candidateSegments)
-    [~, order] = sort(segmentSummary.PerformanceSeverity, 'descend');
-    candidateSegments = segmentSummary(order(1:min(3, height(segmentSummary))), :);
-else
-    candidateSegments = sortrows(candidateSegments, {'PerformanceSeverity', 'TrackingMAE_kmh'}, {'descend', 'descend'});
-    candidateSegments = candidateSegments(1:min(3, height(candidateSegments)), :);
-end
+candidateSegments = sortrows(badSegmentTable, {'MaxAbsError_kmh', 'MeanAbsError_kmh', 'Duration_s'}, {'descend', 'descend', 'descend'});
+candidateSegments = candidateSegments(1:min(3, height(candidateSegments)), :);
 
 for iSeg = 1:height(candidateSegments)
     idx = candidateSegments.StartIndex(iSeg):candidateSegments.EndIndex(iSeg);
@@ -905,8 +953,8 @@ for iSeg = 1:height(candidateSegments)
     localShadeIntervals(gca, candidateSegments.StartTime_s(iSeg), candidateSegments.EndTime_s(iSeg), [0.97 0.92 0.92], 0.85);
     ylabel('Speed [km/h]');
     title(sprintf('Segment %d: t=%.1f - %.1f s (dur=%.2f s, max|e|=%.1f km/h)', ...
-        candidateSegments.SegmentID(iSeg), candidateSegments.StartTime_s(iSeg), candidateSegments.EndTime_s(iSeg), ...
-        candidateSegments.Duration_s(iSeg), max(abs(speedError(idx)), [], 'omitnan')));
+        candidateSegments.DriverSegmentID(iSeg), candidateSegments.StartTime_s(iSeg), candidateSegments.EndTime_s(iSeg), ...
+        candidateSegments.Duration_s(iSeg), candidateSegments.MaxAbsError_kmh(iSeg)));
     legend({'v_{ref}', 'v_{act}'}, 'Location', 'best');
     grid on;
 
@@ -1014,6 +1062,37 @@ end
 if isgraphics(brkPatch)
     handles(end + 1) = brkPatch; %#ok<AGROW>
     labels{end + 1} = 'Brake events'; %#ok<AGROW>
+end
+end
+
+function value = localDominantValue(data)
+data = data(isfinite(data));
+if isempty(data)
+    value = NaN;
+    return;
+end
+uniqueValues = unique(data);
+counts = zeros(size(uniqueValues));
+for iValue = 1:numel(uniqueValues)
+    counts(iValue) = sum(data == uniqueValues(iValue));
+end
+[~, idx] = max(counts);
+value = uniqueValues(idx);
+end
+
+function gradeClass = localGradeClass(meanSlope, config)
+if ~isfinite(meanSlope)
+    gradeClass = "Unknown";
+elseif meanSlope > config.Thresholds.SteepSlope_pct
+    gradeClass = "Steep Uphill";
+elseif meanSlope > config.Thresholds.UphillSlope_pct
+    gradeClass = "Uphill";
+elseif meanSlope < -config.Thresholds.SteepSlope_pct
+    gradeClass = "Steep Downhill";
+elseif meanSlope < config.Thresholds.DownhillSlope_pct
+    gradeClass = "Downhill";
+else
+    gradeClass = "Flat";
 end
 end
 
