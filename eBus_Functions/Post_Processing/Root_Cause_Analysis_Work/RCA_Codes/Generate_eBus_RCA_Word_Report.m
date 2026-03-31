@@ -954,62 +954,31 @@ end
 function localWriteSubsystemSection(doc, selection, reportData, state)
 localAddHeading(selection, '12. Subsystem-Level Root Cause Analysis', 1);
 
-subsystems = reportData.SubsystemResults;
-preferredOrder = string(reportData.Options.ActiveSubsystemReportScope(:)');
+environmentResult = localFindSubsystemResult(reportData, "ENVIRONMENT");
+driverResult = localFindSubsystemResult(reportData, "DRIVER");
 
-if ~isempty(subsystems) && ~isempty(preferredOrder)
-    keepMask = false(numel(subsystems), 1);
-    for iSub = 1:numel(subsystems)
-        normalizedName = upper(regexprep(string(subsystems(iSub).Name), '[^A-Za-z0-9]', ''));
-        keepMask(iSub) = any(preferredOrder == normalizedName);
-    end
-    subsystems = subsystems(keepMask);
-end
-
-if isempty(subsystems)
+if isempty(environmentResult) && isempty(driverResult)
     localAddHeading(selection, '12.1 Subsystem RCA Placeholder', 2);
     selection.TypeText('[Insert subsystem-level RCA findings for Environment and Driver, including KPI tables, engineering interpretation, and supporting plots.]');
     selection.TypeParagraph;
     return;
 end
 
-orderedIdx = localOrderSubsystems(subsystems, preferredOrder);
-for iSub = 1:numel(orderedIdx)
-    sub = subsystems(orderedIdx(iSub));
-    subName = localPrettyName(sub.Name);
-    localAddHeading(selection, sprintf('12.%d %s', iSub, subName), 2);
+localWriteFocusedSubsystemSection(doc, selection, state, ...
+    '12.1 Environment Subsystem Root Cause Analysis', ...
+    'Environment', ...
+    environmentResult, ...
+    'The environment subsystem defines the route and operating context seen by the vehicle. Desired speed, road slope, and ambient temperature explain duty-cycle severity, route load severity, and thermal context, and therefore provide essential evidence before assigning blame to downstream propulsion or control subsystems.', ...
+    {'Environment_Overview', 'Environment_Severity_Map'}, ...
+    {'Environment overview and route context', 'Environment severity map and route classification'});
 
-    roleText = sprintf('%s subsystem role: explain how this subsystem influences vehicle behaviour, efficiency, or performance in the current model context.', subName);
-    localWriteLabelParagraph(selection, 'Role in vehicle behavior', roleText);
-    localWriteLabelParagraph(selection, 'Signals used', localFormatSignalList(sub.RequiredSignals, sub.OptionalSignals));
-
-    if istable(sub.KPITable) && height(sub.KPITable) > 0
-        localAddWordTable(doc, selection, sprintf('%s KPI summary', subName), ...
-            sub.KPITable.Properties.VariableNames, localTableToCellRows(sub.KPITable(1:min(reportData.Options.MaxSummaryRows, height(sub.KPITable)), :)));
-    else
-        localWriteLabelParagraph(selection, 'Key KPIs', '[Insert subsystem KPI summary table or note that the subsystem was not fully observable.]');
-    end
-
-    localWriteLabelParagraph(selection, 'Observed issue patterns', localJoinTextOrPlaceholder(sub.SummaryText, ...
-        '[Insert observed issue patterns and operating trends for this subsystem.]'));
-    localWriteLabelParagraph(selection, 'Likely contributors to losses or poor performance', localComposeSubsystemContributors(sub));
-    localWriteLabelParagraph(selection, 'Root cause candidates', localComposeSubsystemRootCause(sub));
-    localWriteLabelParagraph(selection, 'Recommended modeling / logic / calibration improvements', localComposeSubsystemRecommendations(sub));
-
-    if numel(string(sub.Warnings)) > 0
-        localWriteLabelParagraph(selection, 'Limitations', localJoinTextOrPlaceholder(sub.Warnings, 'No special subsystem limitation note captured.'));
-    end
-
-    figureFiles = localExistingFiles(string(sub.FigureFiles(:)));
-    if ~isempty(figureFiles)
-        count = min(reportData.Options.MaxSubsystemFigures, numel(figureFiles));
-        for iFigure = 1:count
-            localAddFigure(selection, state, char(figureFiles(iFigure)), sprintf('%s evidence figure %d', subName, iFigure));
-        end
-    else
-        localAddFigure(selection, state, '', sprintf('%s evidence figure placeholder', subName));
-    end
-end
+localWriteFocusedSubsystemSection(doc, selection, state, ...
+    '12.2 Driver Subsystem Root Cause Analysis', ...
+    'Driver', ...
+    driverResult, ...
+    'The driver subsystem converts desired vehicle behaviour into accelerator and brake requests. Its PI and feedforward behaviour influences speed tracking quality, event response, and the extent to which route severity is converted into demand on the propulsion and brake systems.', ...
+    {'Driver_Tracking_Overview', 'Driver_Event_Highlights', 'Driver_Error_Maps', 'Driver_Bad_Segments', 'Driver_Gearwise_Tracking'}, ...
+    {'Driver tracking overview', 'Driver accel / brake event highlights', 'Driver error maps', 'Driver bad segment view', 'Driver gear-wise tracking'});
 end
 
 function localWriteEventDeepDiveSection(doc, selection, reportData, state)
@@ -1040,6 +1009,69 @@ localAddRelevantFigure(selection, reportData, state, {'WorstSegment_', 'Driver_W
 deepDiveTable = localBuildDeepDiveTable(reportData);
 localAddWordTable(doc, selection, 'Event-based deep-dive shortlist', ...
     {'Event ID', 'Event Type', 'When it occurs', 'Key difference', 'Likely RCA driver'}, deepDiveTable);
+end
+
+function localWriteFocusedSubsystemSection(doc, selection, state, headingText, subsystemLabel, sub, roleText, figureTokens, figureCaptions)
+localAddHeading(selection, headingText, 2);
+localWriteLabelParagraph(selection, 'Role in vehicle behavior', roleText);
+
+if isempty(sub)
+    localWriteLabelParagraph(selection, 'Signals used', '[Insert signal list]');
+    localWriteLabelParagraph(selection, 'Engineering interpretation', sprintf('[Insert %s subsystem interpretation based on KPI trends, event behaviour, and route context.]', subsystemLabel));
+    localWriteLabelParagraph(selection, 'Observed issue patterns', sprintf('[Insert %s issue patterns and RCA comments.]', subsystemLabel));
+    localWriteLabelParagraph(selection, 'Recommended next actions', sprintf('[Insert %s follow-up actions.]', subsystemLabel));
+    localAddFigure(selection, state, '', sprintf('%s subsystem figure placeholder', subsystemLabel));
+    return;
+end
+
+localWriteLabelParagraph(selection, 'Signals used', localFormatSignalList(sub.RequiredSignals, sub.OptionalSignals));
+
+if istable(sub.KPITable) && height(sub.KPITable) > 0
+    localAddWordTable(doc, selection, sprintf('%s KPI summary', subsystemLabel), ...
+        sub.KPITable.Properties.VariableNames, ...
+        localTableToCellRows(sub.KPITable(1:min(15, height(sub.KPITable)), :)));
+else
+    localWriteLabelParagraph(selection, 'Key KPIs', sprintf('[Insert %s KPI summary table.]', subsystemLabel));
+end
+
+localWriteLabelParagraph(selection, 'Engineering interpretation', localJoinTextOrPlaceholder(sub.SummaryText, ...
+    sprintf('[Insert %s subsystem interpretation based on KPI trends, event behaviour, and route context.]', subsystemLabel)));
+localWriteLabelParagraph(selection, 'Observed issue patterns', localComposeSubsystemContributors(sub));
+localWriteLabelParagraph(selection, 'Root cause candidates', localComposeSubsystemRootCause(sub));
+localWriteLabelParagraph(selection, 'Recommended modeling / logic / calibration improvements', localComposeSubsystemRecommendations(sub));
+
+if numel(string(sub.Warnings)) > 0
+    localWriteLabelParagraph(selection, 'Limitations', localJoinTextOrPlaceholder(sub.Warnings, 'No special subsystem limitation note captured.'));
+end
+
+for iFig = 1:numel(figureTokens)
+    filePath = localFindSubsystemFigure(sub, figureTokens{iFig});
+    localAddFigure(selection, state, filePath, figureCaptions{iFig});
+end
+end
+
+function sub = localFindSubsystemResult(reportData, subsystemName)
+sub = [];
+for iSub = 1:numel(reportData.SubsystemResults)
+    normalizedName = upper(regexprep(string(reportData.SubsystemResults(iSub).Name), '[^A-Za-z0-9]', ''));
+    if normalizedName == upper(regexprep(string(subsystemName), '[^A-Za-z0-9]', ''))
+        sub = reportData.SubsystemResults(iSub);
+        return;
+    end
+end
+end
+
+function filePath = localFindSubsystemFigure(sub, token)
+filePath = '';
+figureFiles = localExistingFiles(string(sub.FigureFiles(:)));
+if isempty(figureFiles)
+    return;
+end
+mask = contains(lower(figureFiles), lower(string(token)));
+idx = find(mask, 1, 'first');
+if ~isempty(idx)
+    filePath = char(figureFiles(idx));
+end
 end
 
 function rows = localBuildDeepDiveTable(reportData)
