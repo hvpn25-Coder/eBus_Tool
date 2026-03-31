@@ -90,6 +90,16 @@ results.AnalysisData = analysisData;
 
 RCA_SaveOutputs(results, outputPaths, config);
 
+try
+    reportOutput = Generate_eBus_RCA_Word_Report(results, outputPaths.Root);
+    results.ReportOutput = reportOutput;
+catch reportException
+    warning('Vehicle_Detailed_Analysis:WordReport', ...
+        'Word report generation failed: %s', reportException.message);
+    results.ReportOutput = struct('ReportFile', "", 'TemplateFile', "", 'SampleFile', "", ...
+        'OutputFolder', string(outputPaths.Root), 'Source', struct('HasResults', false));
+end
+
 assignin('base', 'RCA_Results', results);
 assignin('base', 'RCA_SignalPresence', signalPresence);
 assignin('base', 'RCA_VehicleKPI', vehicleKPI);
@@ -104,6 +114,9 @@ fprintf('  Vehicle KPI rows     : %d\n', height(vehicleKPI));
 fprintf('  Segment summary rows : %d\n', height(segmentSummary));
 fprintf('  Root-cause rows      : %d\n', height(rootCauseRanking));
 fprintf('  Output folder        : %s\n', outputPaths.Root);
+if isfield(results, 'ReportOutput') && isfield(results.ReportOutput, 'ReportFile') && strlength(string(results.ReportOutput.ReportFile)) > 0
+    fprintf('  Word report          : %s\n', char(results.ReportOutput.ReportFile));
+end
 end
 
 function [matFilePath, excelFilePath, outputRoot] = localResolveInputs(matFilePath, excelFilePath, outputRoot, config)

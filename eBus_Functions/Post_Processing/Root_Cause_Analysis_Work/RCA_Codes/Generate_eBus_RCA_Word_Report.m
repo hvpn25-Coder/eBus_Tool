@@ -130,6 +130,7 @@ results = [];
 sourceInfo = struct('HasResults', false, 'SourceType', "PlaceholderOnly", 'SourcePath', "", 'Description', "No RCA result struct supplied.");
 
 if isempty(resultsInput)
+    [results, sourceInfo] = localResolveImplicitResults();
     return;
 end
 
@@ -179,6 +180,52 @@ end
 
 error('Generate_eBus_RCA_Word_Report:UnsupportedInput', ...
     'resultsInput must be empty, a results struct, or a MAT file path.');
+end
+
+function [results, sourceInfo] = localResolveImplicitResults()
+results = [];
+sourceInfo = struct('HasResults', false, 'SourceType', "PlaceholderOnly", 'SourcePath', "", 'Description', "No RCA result struct supplied.");
+
+try
+    if evalin('base', 'exist(''RCA_Results'',''var'')')
+        baseResults = evalin('base', 'RCA_Results');
+        if isstruct(baseResults) && isfield(baseResults, 'VehicleKPI') && isfield(baseResults, 'SubsystemResults')
+            results = baseResults;
+            sourceInfo.HasResults = true;
+            sourceInfo.SourceType = "BaseWorkspace";
+            sourceInfo.Description = "RCA results recovered from MATLAB base workspace variable RCA_Results.";
+            if isfield(baseResults, 'AnalysisData') && isfield(baseResults.AnalysisData, 'RawData') && isfield(baseResults.AnalysisData.RawData, 'MatFilePath')
+                sourceInfo.SourcePath = string(baseResults.AnalysisData.RawData.MatFilePath);
+            end
+            return;
+        end
+    end
+catch
+end
+
+try
+    config = RCA_Config();
+    defaultResultsRoot = fullfile(fileparts(mfilename('fullpath')), config.General.DefaultResultsFolder);
+    resultsFiles = dir(fullfile(defaultResultsRoot, '**', 'RCA_Results.mat'));
+    if ~isempty(resultsFiles)
+        [~, order] = sort([resultsFiles.datenum], 'descend');
+        latestPath = fullfile(resultsFiles(order(1)).folder, resultsFiles(order(1)).name);
+        loaded = load(latestPath);
+        if isfield(loaded, 'results')
+            results = loaded.results;
+        elseif isfield(loaded, 'RCA_Results')
+            results = loaded.RCA_Results;
+        end
+        if ~isempty(results)
+            sourceInfo.HasResults = true;
+            sourceInfo.SourceType = "LatestSavedMAT";
+            sourceInfo.SourcePath = string(latestPath);
+            sourceInfo.Description = "RCA results loaded from the most recent RCA_Results.mat file.";
+            return;
+        end
+    end
+catch
+end
 end
 
 function outputFolder = localResolveOutputFolder(results, outputFolder)
