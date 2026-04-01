@@ -87,18 +87,10 @@ results.RootCauseNarrative = rootCauseNarrative;
 results.VehiclePlots = vehiclePlots;
 results.SubsystemResults = subsystemResults;
 results.AnalysisData = analysisData;
+results.ReportOutput = struct('ReportFile', "", 'TemplateFile', "", 'SampleFile', "", ...
+    'OutputFolder', string(outputPaths.Root), 'Source', struct('HasResults', false));
 
 RCA_SaveOutputs(results, outputPaths, config);
-
-try
-    reportOutput = Generate_eBus_RCA_Word_Report(results, outputPaths.Root);
-    results.ReportOutput = reportOutput;
-catch reportException
-    warning('Vehicle_Detailed_Analysis:WordReport', ...
-        'Word report generation failed: %s', reportException.message);
-    results.ReportOutput = struct('ReportFile', "", 'TemplateFile', "", 'SampleFile', "", ...
-        'OutputFolder', string(outputPaths.Root), 'Source', struct('HasResults', false));
-end
 
 assignin('base', 'RCA_Results', results);
 assignin('base', 'RCA_SignalPresence', signalPresence);
@@ -114,9 +106,7 @@ fprintf('  Vehicle KPI rows     : %d\n', height(vehicleKPI));
 fprintf('  Segment summary rows : %d\n', height(segmentSummary));
 fprintf('  Root-cause rows      : %d\n', height(rootCauseRanking));
 fprintf('  Output folder        : %s\n', outputPaths.Root);
-if isfield(results, 'ReportOutput') && isfield(results.ReportOutput, 'ReportFile') && strlength(string(results.ReportOutput.ReportFile)) > 0
-    fprintf('  Word report          : %s\n', char(results.ReportOutput.ReportFile));
-end
+localPrintActionLinks();
 end
 
 function [matFilePath, excelFilePath, outputRoot] = localResolveInputs(matFilePath, excelFilePath, outputRoot, config)
@@ -192,4 +182,21 @@ for iAnalyzer = 1:numel(analyzers)
         subsystemResults(iAnalyzer).Warnings = "Subsystem analysis failed: " + string(analysisException.message);
     end
 end
+end
+
+function localPrintActionLinks()
+fprintf('\nInteractive Actions:\n');
+fprintf('  %s\n', localMatlabHyperlink( ...
+    'Generate_eBus_RCA_Word_Report(RCA_Results, RCA_Results.Paths.Root);', ...
+    'Generate Word report'));
+fprintf('  %s\n', localMatlabHyperlink( ...
+    'RCA_ShowSubsystemReview(RCA_Results, ''DRIVER'');', ...
+    'Open Driver RCA review'));
+fprintf('  %s\n', localMatlabHyperlink( ...
+    'RCA_ShowSubsystemReview(RCA_Results, ''ENVIRONMENT'');', ...
+    'Open Environment RCA review'));
+end
+
+function hyperlinkText = localMatlabHyperlink(commandText, labelText)
+hyperlinkText = sprintf('<a href="matlab:%s">%s</a>', commandText, labelText);
 end
