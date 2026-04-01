@@ -24,7 +24,7 @@ plotFiles = strings(0, 1);
 
 if ~any([roadSlopeSignal.Available, desiredSpeedSignal.Available, ambientTempSignal.Available])
     result.Warnings(end + 1) = "Environment subsystem signals are unavailable.";
-    result.KPITable = RCA_FinalizeKPITable(rows);
+    result.KPITable = localRemoveSubsystemColumn(RCA_FinalizeKPITable(rows));
     result.Suggestions = RCA_MakeSuggestionTable("Environment", strings(0, 1), strings(0, 1));
     return;
 end
@@ -327,7 +327,7 @@ if any([desiredSpeedSignal.Available, roadSlopeSignal.Available, ambientTempSign
 end
 
 result.Available = ~isempty(rows);
-result.KPITable = RCA_FinalizeKPITable(rows);
+result.KPITable = localRemoveSubsystemColumn(RCA_FinalizeKPITable(rows));
 result.FigureFiles = plotFiles;
 result.SummaryText = summary;
 result.Suggestions = RCA_MakeSuggestionTable("Environment", recs, evidence);
@@ -506,7 +506,13 @@ end
 function result = localInitResult(name, requiredSignals, optionalSignals)
 result = struct('Name', string(name), 'Available', false, ...
     'RequiredSignals', {requiredSignals}, 'OptionalSignals', {optionalSignals}, ...
-    'KPITable', RCA_FinalizeKPITable([]), 'FigureFiles', strings(0, 1), ...
+    'KPITable', localRemoveSubsystemColumn(RCA_FinalizeKPITable([])), 'FigureFiles', strings(0, 1), ...
     'SummaryText', strings(0, 1), 'Warnings', strings(0, 1), ...
     'Suggestions', RCA_MakeSuggestionTable(name, strings(0, 1), strings(0, 1)));
+end
+
+function kpiTable = localRemoveSubsystemColumn(kpiTable)
+if istable(kpiTable) && ismember('Subsystem', kpiTable.Properties.VariableNames)
+    kpiTable.Subsystem = [];
+end
 end

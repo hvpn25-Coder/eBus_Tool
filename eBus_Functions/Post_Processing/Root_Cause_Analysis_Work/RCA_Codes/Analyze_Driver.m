@@ -14,7 +14,7 @@ plotFiles = strings(0, 1);
 
 if isempty(t)
     result.Warnings(end + 1) = "Driver analysis skipped because the aligned time base is unavailable.";
-    result.KPITable = RCA_FinalizeKPITable(rows);
+    result.KPITable = localRemoveSubsystemColumn(RCA_FinalizeKPITable(rows));
     result.SummaryText = summary;
     result.Suggestions = RCA_MakeSuggestionTable("Driver", recs, evidence);
     return;
@@ -356,7 +356,7 @@ plotFiles = [plotFiles; reshape(localPlotDriverWorstSegments(driverFigureFolder,
 plotFiles = plotFiles(plotFiles ~= "");
 
 result.Available = ~isempty(rows);
-result.KPITable = RCA_FinalizeKPITable(rows);
+result.KPITable = localRemoveSubsystemColumn(RCA_FinalizeKPITable(rows));
 result.FigureFiles = plotFiles;
 result.SummaryText = unique(summary(summary ~= ""));
 result.Suggestions = RCA_MakeSuggestionTable("Driver", recs, evidence);
@@ -1110,7 +1110,13 @@ end
 function result = localInitResult(name, requiredSignals, optionalSignals)
 result = struct('Name', string(name), 'Available', false, ...
     'RequiredSignals', {requiredSignals}, 'OptionalSignals', {optionalSignals}, ...
-    'KPITable', RCA_FinalizeKPITable([]), 'FigureFiles', strings(0, 1), ...
+    'KPITable', localRemoveSubsystemColumn(RCA_FinalizeKPITable([])), 'FigureFiles', strings(0, 1), ...
     'SummaryText', strings(0, 1), 'Warnings', strings(0, 1), ...
     'Suggestions', RCA_MakeSuggestionTable(name, strings(0, 1), strings(0, 1)));
+end
+
+function kpiTable = localRemoveSubsystemColumn(kpiTable)
+if istable(kpiTable) && ismember('Subsystem', kpiTable.Properties.VariableNames)
+    kpiTable.Subsystem = [];
+end
 end
