@@ -159,7 +159,8 @@ if ~istable(inputTable) || isempty(inputTable)
     return;
 end
 
-headers = inputTable.Properties.VariableNames;
+displayTable = localReorderDisplayColumns(inputTable);
+headers = displayTable.Properties.VariableNames;
 nRows = height(inputTable);
 nCols = width(inputTable);
 
@@ -172,7 +173,7 @@ end
 
 for iRow = 1:nRows
     for iCol = 1:nCols
-        textValue = localScalarToText(inputTable{iRow, iCol});
+        textValue = localScalarToText(displayTable{iRow, iCol});
         textData{iRow, iCol} = textValue;
         colWidths(iCol) = max(colWidths(iCol), strlength(string(textValue)));
     end
@@ -195,6 +196,19 @@ for iRow = 1:nRows
     end
     fprintf('\n');
 end
+end
+
+function displayTable = localReorderDisplayColumns(inputTable)
+displayTable = inputTable;
+requiredNames = ["SignalBasis", "StatusNote"];
+if ~all(ismember(requiredNames, string(displayTable.Properties.VariableNames)))
+    return;
+end
+
+currentNames = string(displayTable.Properties.VariableNames);
+keepNames = currentNames(~ismember(currentNames, requiredNames));
+displayOrder = [keepNames, "StatusNote", "SignalBasis"];
+displayTable = displayTable(:, cellstr(displayOrder));
 end
 
 function textValue = localScalarToText(value)
