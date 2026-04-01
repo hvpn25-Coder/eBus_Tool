@@ -48,14 +48,14 @@ end
 
 fprintf('\nKPI Table:\n');
 if istable(sub.KPITable) && height(sub.KPITable) > 0
-    disp(sub.KPITable);
+    localPrintPlainTable(sub.KPITable);
 else
     fprintf('  No KPI rows were recorded for this subsystem.\n');
 end
 
 if isfield(sub, 'Suggestions') && istable(sub.Suggestions) && height(sub.Suggestions) > 0
     fprintf('\nSuggestions:\n');
-    disp(sub.Suggestions);
+    localPrintPlainTable(sub.Suggestions);
 end
 
 figureFiles = localExistingFiles(string(sub.FigureFiles(:)));
@@ -151,5 +151,79 @@ pretty = strrep(pretty, '_', ' ');
 pretty = strtrim(pretty);
 if isempty(pretty)
     pretty = 'Subsystem';
+end
+end
+
+function localPrintPlainTable(inputTable)
+if ~istable(inputTable) || isempty(inputTable)
+    return;
+end
+
+headers = inputTable.Properties.VariableNames;
+nRows = height(inputTable);
+nCols = width(inputTable);
+
+textData = cell(nRows, nCols);
+colWidths = zeros(1, nCols);
+
+for iCol = 1:nCols
+    colWidths(iCol) = strlength(string(headers{iCol}));
+end
+
+for iRow = 1:nRows
+    for iCol = 1:nCols
+        textValue = localScalarToText(inputTable{iRow, iCol});
+        textData{iRow, iCol} = textValue;
+        colWidths(iCol) = max(colWidths(iCol), strlength(string(textValue)));
+    end
+end
+
+for iCol = 1:nCols
+    fprintf('%-*s', colWidths(iCol) + 2, headers{iCol});
+end
+fprintf('\n');
+
+for iCol = 1:nCols
+    fprintf('%s', repmat('-', 1, colWidths(iCol)));
+    fprintf('  ');
+end
+fprintf('\n');
+
+for iRow = 1:nRows
+    for iCol = 1:nCols
+        fprintf('%-*s', colWidths(iCol) + 2, textData{iRow, iCol});
+    end
+    fprintf('\n');
+end
+end
+
+function textValue = localScalarToText(value)
+if iscell(value)
+    if isempty(value)
+        textValue = '';
+    elseif numel(value) == 1
+        textValue = localScalarToText(value{1});
+    else
+        parts = cellfun(@localScalarToText, value, 'UniformOutput', false);
+        textValue = strjoin(parts, '; ');
+    end
+elseif isstring(value)
+    textValue = char(strjoin(value(:)', '; '));
+elseif ischar(value)
+    textValue = value;
+elseif isnumeric(value) || islogical(value)
+    if isempty(value)
+        textValue = '';
+    elseif isscalar(value)
+        textValue = num2str(value, '%.6g');
+    else
+        textValue = mat2str(value);
+    end
+else
+    try
+        textValue = char(string(value));
+    catch
+        textValue = '[value]';
+    end
 end
 end
