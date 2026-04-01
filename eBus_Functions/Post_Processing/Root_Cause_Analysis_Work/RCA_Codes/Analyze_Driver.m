@@ -311,6 +311,17 @@ if any(poorTrackingMask) && 100 * RCA_FractionTrue(shiftWindowMask, poorTracking
     evidence(end + 1) = sprintf('%.1f%% of poor-tracking samples fall inside the configured post-shift window.', 100 * RCA_FractionTrue(shiftWindowMask, poorTrackingMask));
 end
 
+summary(end + 1) = "General driver-controller tuning hints are included for acceleration, braking, and cruise phases so calibration discussion is not limited only to the detected bad events.";
+
+recs(end + 1) = "Acceleration phase tuning hint: calibrate positive speed-error response, grade/load feedforward, and torque-request ramp shaping together; avoid increasing PI aggressiveness without checking torque-limit interaction and shift handover quality.";
+evidence(end + 1) = "General acceleration guidance based on veh_des_vel, veh_vel, road_slp, gr_num, and max available drive torque.";
+
+recs(end + 1) = "Braking phase tuning hint: tune negative speed-error entry, downhill braking feedforward, and regen/friction-brake coordination together; also review traction-release to brake-build-up arbitration so overspeed is corrected without delay.";
+evidence(end + 1) = "General braking guidance based on veh_des_vel, veh_vel, road_slp, and brk_pdl with braking-event RCA context.";
+
+recs(end + 1) = "Cruise phase tuning hint: tune steady-state bias removal with integral action carefully, then use deadband, hysteresis, filtering, and anti-windup to avoid oscillation or hunting around the desired speed.";
+evidence(end + 1) = "General cruise guidance based on flat-road cruise bias, speed-error sign-change behaviour, and pedal stability trends.";
+
 driverTableFolder = outputPaths.Tables;
 localSafeWriteTable(eventTable, fullfile(driverTableFolder, 'Driver_EventSummary.csv'));
 localSafeWriteTable(badEvents, fullfile(driverTableFolder, 'Driver_BadEvents.csv'));
