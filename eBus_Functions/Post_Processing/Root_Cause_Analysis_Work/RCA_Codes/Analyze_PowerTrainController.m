@@ -340,6 +340,7 @@ else
     valid = activeMask & isfinite(demand) & isfinite(limitSignal) & abs(limitSignal) > 0;
     sharePct = 100 * RCA_FractionTrue(abs(demand) >= usageFraction .* abs(limitSignal), valid);
 end
+end
 
 function shiftEvents = localShiftEvents(gearNum)
 shiftEvents = false(size(gearNum));
@@ -388,7 +389,6 @@ end
 [peakCount, idx] = max(gearCounts);
 dominantGear = gearList(idx);
 dominantShare = 100 * peakCount / sum(gearCounts);
-end
 end
 
 function plotFile = localPlotCommandOverview(outputFolder, t, accPedal, brkPedal, totalDemand, totalActual, posLimit, negLimit, driveNearLimitMask, regenNearLimitMask, config)
