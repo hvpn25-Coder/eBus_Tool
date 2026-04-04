@@ -126,6 +126,8 @@ switch normalized
         aliases(end + 1:end + 2) = ["ENVIRONMENT", "ANALYZEENVIRONMENT"];
     case "DRIVER"
         aliases(end + 1:end + 2) = ["DRIVER", "ANALYZEDRIVER"];
+    case "ELECTRICDRIVE"
+        aliases(end + 1:end + 3) = ["ELECTRICDRIVE", "EDRIVE", "MOTORDRIVE", "ANALYZEELECTRICDRIVE"];
 end
 
 aliases = unique(aliases);
