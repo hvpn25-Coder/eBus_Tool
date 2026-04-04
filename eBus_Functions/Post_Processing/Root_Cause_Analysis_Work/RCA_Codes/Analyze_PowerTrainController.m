@@ -4,7 +4,7 @@ function result = Analyze_PowerTrainController(analysisData, outputPaths, config
 result = localInitResult("POWER TRAIN CONTROLLER", ...
     {'acc_pdl', 'brk_pdl', 'emot1_dem_trq', 'emot2_dem_trq'}, ...
     {'emot1_act_trq', 'emot2_act_trq', 'emot1_max_av_trq', 'emot2_max_av_trq', ...
-    'emot1_min_av_trq', 'emot2_min_av_trq'});
+    'emot1_min_av_trq', 'emot2_min_av_trq', 'gr_num', 'gr_ratio'});
 
 d = analysisData.Derived;
 t = d.time_s(:);
@@ -30,6 +30,15 @@ totalDemand = d.torqueDemandTotal_Nm(:);
 totalActual = d.torqueActualTotal_Nm(:);
 posLimit = d.torquePositiveLimit_Nm(:);
 negLimit = d.torqueNegativeLimit_Nm(:);
+gearNum = d.gearNumber(:);
+gearRatio = d.gearRatio(:);
+
+if ~any(isfinite(gearNum))
+    gearNum = localAlignedSignal(analysisData.Signals, 'gr_num', n);
+end
+if ~any(isfinite(gearRatio))
+    gearRatio = localAlignedSignal(analysisData.Signals, 'gr_ratio', n);
+end
 
 em1Demand = localAlignedSignal(analysisData.Signals, 'emot1_dem_trq', n);
 em2Demand = localAlignedSignal(analysisData.Signals, 'emot2_dem_trq', n);
@@ -77,6 +86,9 @@ em1DriveNearLimit = localMotorNearLimit(em1Demand, em1Max, driveMask, config.Thr
 em2DriveNearLimit = localMotorNearLimit(em2Demand, em2Max, driveMask, config.Thresholds.LimitUsageFraction, true);
 em1RegenNearLimit = localMotorNearLimit(em1Demand, em1Min, regenMask, config.Thresholds.LimitUsageFraction, false);
 em2RegenNearLimit = localMotorNearLimit(em2Demand, em2Min, regenMask, config.Thresholds.LimitUsageFraction, false);
+validGear = isfinite(gearNum);
+shiftMask = localShiftMask(gearNum);
+gearShiftCount = sum(localShiftEvents(gearNum));
 
 rows = RCA_AddKPI(rows, 'Drive Command Active Share', 100 * RCA_FractionTrue(driveMask, validDemand), '%', ...
     'Operation', 'Power Train Controller', 'emot1_dem_trq + emot2_dem_trq', ...
@@ -163,6 +175,41 @@ rows = RCA_AddKPI(rows, 'Mean Cruise-Phase Absolute Torque', mean(abs(totalDeman
     'Phases', 'Power Train Controller', 'pedals + total demand torque', ...
     'Average absolute torque during nominal cruise/coast helps identify unwanted residual request.');
 
+if any(validGear)
+    rows = RCA_AddKPI(rows, 'Shift Count', gearShiftCount, 'count', ...
+        'Gear Context', 'Power Train Controller', 'gr_num', ...
+        'Total number of actual gear changes observed during the analysis window.');
+    rows = RCA_AddKPI(rows, 'Shift Active Share', 100 * RCA_FractionTrue(shiftMask, validGear), '%', ...
+        'Gear Context', 'Power Train Controller', 'gr_num', ...
+        'Share of samples around a gear transition. High values indicate frequent gear state changes in controller operating context.');
+    rows = RCA_AddKPI(rows, 'Mean Active Gear Ratio', mean(gearRatio(validGear & (driveMask | regenMask)), 'omitnan'), '-', ...
+        'Gear Context', 'Power Train Controller', 'gr_ratio', ...
+        'Average actual gear ratio while non-neutral torque demand is active.');
+    rows = RCA_AddKPI(rows, 'Gear Ratio Span', max(gearRatio(validGear), [], 'omitnan') - min(gearRatio(validGear), [], 'omitnan'), '-', ...
+        'Gear Context', 'Power Train Controller', 'gr_ratio', ...
+        'Range between maximum and minimum observed actual gear ratio.');
+    rows = RCA_AddKPI(rows, 'Near Positive Limit During Shift Share', 100 * RCA_FractionTrue(driveNearLimitMask & shiftMask, shiftMask & driveMask), '%', ...
+        'Gear Context', 'Power Train Controller', 'gr_num + max available torque', ...
+        'Shows whether drive torque requests are concentrated near machine limit during shift activity.');
+    rows = RCA_AddKPI(rows, 'Near Regen Limit During Shift Share', 100 * RCA_FractionTrue(regenNearLimitMask & shiftMask, shiftMask & regenMask), '%', ...
+        'Gear Context', 'Power Train Controller', 'gr_num + min available torque', ...
+        'Shows whether recuperation torque requests are concentrated near machine limit during shift activity.');
+
+    [gearList, gearDriveMean, gearRegenMean, gearDriveShare] = localGearDemandStats(gearNum, totalDemand, driveMask, regenMask);
+    for iGear = 1:numel(gearList)
+        gearLabel = sprintf('Gear %.0f', gearList(iGear));
+        rows = RCA_AddKPI(rows, [gearLabel ' Drive Command Share'], gearDriveShare(iGear), '%', ...
+            'Gear Context', 'Power Train Controller', 'gr_num + total demand torque', ...
+            'Share of active drive-demand samples occurring in this actual gear.');
+        rows = RCA_AddKPI(rows, [gearLabel ' Mean Drive Torque Demand'], gearDriveMean(iGear), 'Nm', ...
+            'Gear Context', 'Power Train Controller', 'gr_num + total demand torque', ...
+            'Average total positive torque demand while this gear is active.');
+        rows = RCA_AddKPI(rows, [gearLabel ' Mean Regen Torque Demand'], gearRegenMean(iGear), 'Nm', ...
+            'Gear Context', 'Power Train Controller', 'gr_num + total demand torque', ...
+            'Average recuperation torque magnitude while this gear is active.');
+    end
+end
+
 summary(end + 1) = sprintf(['Powertrain controller command mix: drive torque is active for %.1f%% of valid samples, ', ...
     'regen torque for %.1f%%, and neutral/coast torque for %.1f%%.'], ...
     100 * RCA_FractionTrue(driveMask, validDemand), 100 * RCA_FractionTrue(regenMask, validDemand), 100 * RCA_FractionTrue(neutralMask, validDemand));
@@ -181,6 +228,19 @@ if isfinite(mean(splitImbalanceDrive, 'omitnan')) || isfinite(mean(splitImbalanc
     summary(end + 1) = sprintf(['Motor split quality: mean drive split imbalance is %.1f%% and mean regen split imbalance is %.1f%%. ', ...
         'Large imbalance can be intentional, but it should correlate with machine limits, efficiency strategy, or drivetrain architecture.'], ...
         mean(splitImbalanceDrive, 'omitnan'), mean(splitImbalanceRegen, 'omitnan'));
+end
+
+if any(validGear)
+    [dominantGear, dominantGearShare] = localDominantGear(gearNum, driveMask | regenMask);
+    summary(end + 1) = sprintf(['Gear context: %d gear changes were observed, with %.1f%% of active torque-command time spent in Gear %.0f. ', ...
+        'This helps stakeholders connect controller torque requests to the actual transmission state used by the feedforward logic.'], ...
+        gearShiftCount, dominantGearShare, dominantGear);
+    if any(isfinite(gearRatio))
+        summary(end + 1) = sprintf(['Actual gear ratio ranged from %.2f to %.2f, with a mean active ratio of %.2f. ', ...
+            'This indicates the spread of transmission leverage seen by the controller while generating drive and regen requests.'], ...
+            min(gearRatio(validGear), [], 'omitnan'), max(gearRatio(validGear), [], 'omitnan'), ...
+            mean(gearRatio(validGear & (driveMask | regenMask)), 'omitnan'));
+    end
 end
 
 recs(end + 1) = "Acceleration-phase tuning hint: tune pedal-to-drive torque gain, torque ramp rate, and torque-limit approach together so the controller requests strong propulsion without chattering at the positive limit or creating a motor split bias.";
@@ -214,11 +274,27 @@ if 100 * RCA_FractionTrue(cruiseLeakageMask, cruisePhase) > 10
     evidence(end + 1) = sprintf('Cruise torque leakage share is %.1f%% above %.1f Nm.', ...
         100 * RCA_FractionTrue(cruiseLeakageMask, cruisePhase), leakageTorqueThreshold);
 end
+if any(validGear) && 100 * RCA_FractionTrue(driveNearLimitMask & shiftMask, shiftMask & driveMask) > 15
+    recs(end + 1) = "Review shift-aware feedforward torque shaping so the controller does not repeatedly demand near-limit positive torque while the actual gear is changing.";
+    evidence(end + 1) = sprintf('Near positive limit during shift share is %.1f%%.', ...
+        100 * RCA_FractionTrue(driveNearLimitMask & shiftMask, shiftMask & driveMask));
+end
+if any(validGear) && 100 * RCA_FractionTrue(regenNearLimitMask & shiftMask, shiftMask & regenMask) > 15
+    recs(end + 1) = "Review shift-aware recuperation shaping and gear-state handover so regen demand does not crowd the negative torque limit during gear transitions.";
+    evidence(end + 1) = sprintf('Near regen limit during shift share is %.1f%%.', ...
+        100 * RCA_FractionTrue(regenNearLimitMask & shiftMask, shiftMask & regenMask));
+end
+if any(validGear) && gearShiftCount > 0 && mean(abs(totalDemand(shiftMask)), 'omitnan') > mean(abs(totalDemand(~shiftMask)), 'omitnan') * 1.25
+    recs(end + 1) = "Check whether actual-gear or gear-ratio feedforward terms are amplifying torque demand around shifts; torque command magnitude rises materially during shift activity.";
+    evidence(end + 1) = sprintf('Mean absolute torque during shift activity is %.1f Nm versus %.1f Nm away from shifts.', ...
+        mean(abs(totalDemand(shiftMask)), 'omitnan'), mean(abs(totalDemand(~shiftMask)), 'omitnan'));
+end
 
 figureFolder = fullfile(outputPaths.FiguresSubsystem, 'PowerTrainController');
 plotFiles = localAppendPlotFile(plotFiles, localPlotCommandOverview(figureFolder, t, accPedal, brkPedal, totalDemand, totalActual, posLimit, negLimit, driveNearLimitMask, regenNearLimitMask, config));
 plotFiles = localAppendPlotFile(plotFiles, localPlotMotorSplit(figureFolder, t, em1Demand, em2Demand, totalDemand, accelPhase, brakePhase, cruisePhase, splitImbalanceDrive, splitImbalanceRegen, config));
 plotFiles = localAppendPlotFile(plotFiles, localPlotPedalResponse(figureFolder, accPedal, brkPedal, totalDemand, driveNearLimitMask, regenNearLimitMask, accelPhase, brakePhase, cruisePhase, config));
+plotFiles = localAppendPlotFile(plotFiles, localPlotGearContext(figureFolder, t, gearNum, gearRatio, totalDemand, posLimit, negLimit, shiftMask, config));
 plotFiles = plotFiles(plotFiles ~= "");
 
 result.Available = true;
@@ -263,6 +339,55 @@ if positiveMode
 else
     valid = activeMask & isfinite(demand) & isfinite(limitSignal) & abs(limitSignal) > 0;
     sharePct = 100 * RCA_FractionTrue(abs(demand) >= usageFraction .* abs(limitSignal), valid);
+end
+
+function shiftEvents = localShiftEvents(gearNum)
+shiftEvents = false(size(gearNum));
+if numel(gearNum) < 2
+    return;
+end
+validStep = isfinite(gearNum(2:end)) & isfinite(gearNum(1:end-1));
+shiftEvents(2:end) = validStep & abs(diff(gearNum)) > 0.05;
+end
+
+function shiftMask = localShiftMask(gearNum)
+shiftMask = localShiftEvents(gearNum);
+if any(shiftMask)
+    shiftMask = shiftMask | [shiftMask(2:end); false] | [false; shiftMask(1:end-1)];
+end
+end
+
+function [gearList, driveMean, regenMean, driveShare] = localGearDemandStats(gearNum, totalDemand, driveMask, regenMask)
+validGear = isfinite(gearNum);
+gearList = unique(round(gearNum(validGear)));
+gearList = gearList(:)';
+driveMean = NaN(size(gearList));
+regenMean = NaN(size(gearList));
+driveShare = NaN(size(gearList));
+for iGear = 1:numel(gearList)
+    gearMask = validGear & round(gearNum) == gearList(iGear);
+    driveMean(iGear) = mean(totalDemand(gearMask & driveMask), 'omitnan');
+    regenMean(iGear) = mean(max(-totalDemand(gearMask & regenMask), 0), 'omitnan');
+    driveShare(iGear) = 100 * RCA_FractionTrue(gearMask & driveMask, driveMask);
+end
+end
+
+function [dominantGear, dominantShare] = localDominantGear(gearNum, activeMask)
+dominantGear = NaN;
+dominantShare = NaN;
+valid = isfinite(gearNum) & activeMask;
+if ~any(valid)
+    return;
+end
+gearVals = round(gearNum(valid));
+gearList = unique(gearVals);
+gearCounts = zeros(size(gearList));
+for iGear = 1:numel(gearList)
+    gearCounts(iGear) = sum(gearVals == gearList(iGear));
+end
+[peakCount, idx] = max(gearCounts);
+dominantGear = gearList(idx);
+dominantShare = 100 * peakCount / sum(gearCounts);
 end
 end
 
@@ -398,6 +523,67 @@ ylabel('Share (%)');
 grid on;
 
 plotFile = string(RCA_SaveFigure(fig, outputFolder, 'PowerTrainController_PedalResponse', config));
+close(fig);
+end
+
+function plotFile = localPlotGearContext(outputFolder, t, gearNum, gearRatio, totalDemand, posLimit, negLimit, shiftMask, config)
+plotFile = "";
+if ~any(isfinite(gearNum)) && ~any(isfinite(gearRatio))
+    return;
+end
+
+fig = figure('Color', 'w', 'Position', config.Plot.FigurePosition);
+
+subplot(4, 1, 1);
+if any(isfinite(gearNum))
+    stairs(t, gearNum, 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth); hold on;
+    plot(t(shiftMask), gearNum(shiftMask), 'o', 'Color', config.Plot.Colors.Warning, 'MarkerSize', 4);
+    ylabel('Gear (-)');
+    title('Actual Gear Number and Shift Activity');
+    legend({'Actual gear', 'Shift activity'}, 'Location', 'best');
+else
+    plot(t, NaN(size(t)));
+    title('Actual Gear Number and Shift Activity');
+    ylabel('Gear (-)');
+end
+grid on;
+
+subplot(4, 1, 2);
+if any(isfinite(gearRatio))
+    plot(t, gearRatio, 'Color', config.Plot.Colors.Motor, 'LineWidth', config.Plot.LineWidth);
+end
+title('Actual Gear Ratio');
+ylabel('Ratio (-)');
+grid on;
+
+subplot(4, 1, 3);
+plot(t, totalDemand, 'Color', config.Plot.Colors.Demand, 'LineWidth', config.Plot.LineWidth); hold on;
+if any(isfinite(posLimit))
+    plot(t, posLimit, '--', 'Color', config.Plot.Colors.Warning, 'LineWidth', config.Plot.LineWidth);
+end
+if any(isfinite(negLimit))
+    plot(t, negLimit, '--', 'Color', config.Plot.Colors.Auxiliary, 'LineWidth', config.Plot.LineWidth);
+end
+plot(t(shiftMask), totalDemand(shiftMask), 'o', 'Color', config.Plot.Colors.Vehicle, 'MarkerSize', 4);
+plot(t, zeros(size(t)), '-', 'Color', config.Plot.Colors.Neutral, 'LineWidth', 0.8);
+title('Torque Demand with Shift Context');
+ylabel('Torque (Nm)');
+legend({'Demand torque', 'Max available torque', 'Min available torque', 'Shift activity', 'Zero line'}, 'Location', 'best');
+grid on;
+
+subplot(4, 1, 4);
+validScatter = isfinite(gearRatio) & isfinite(totalDemand);
+scatter(gearRatio(validScatter), totalDemand(validScatter), 12, double(shiftMask(validScatter)), 'filled');
+colormap(gca, [config.Plot.Colors.Vehicle; config.Plot.Colors.Warning]);
+cb = colorbar;
+cb.Ticks = [0 1];
+cb.TickLabels = {'Steady gear', 'Shift activity'};
+title('Torque Demand vs Actual Gear Ratio');
+xlabel('Actual gear ratio (-)');
+ylabel('Torque demand (Nm)');
+grid on;
+
+plotFile = string(RCA_SaveFigure(fig, outputFolder, 'PowerTrainController_GearContext', config));
 close(fig);
 end
 
