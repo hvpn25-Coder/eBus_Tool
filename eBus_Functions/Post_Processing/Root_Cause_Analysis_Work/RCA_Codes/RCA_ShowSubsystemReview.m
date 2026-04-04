@@ -19,8 +19,10 @@ subsystemKey = upper(regexprep(string(subsystemName), '[^A-Za-z0-9]', ''));
 sub = localFindSubsystem(results, subsystemKey);
 
 if isempty(sub)
+    availableNames = localAvailableSubsystemNames(results);
     error('RCA_ShowSubsystemReview:SubsystemNotFound', ...
-        'Subsystem %s was not found in the RCA results.', char(string(subsystemName)));
+        'Subsystem %s was not found in the RCA results. Available subsystem names: %s', ...
+        char(string(subsystemName)), char(strjoin(availableNames, ', ')));
 end
 
 fprintf('\n============================================================\n');
@@ -99,13 +101,47 @@ end
 
 function sub = localFindSubsystem(results, subsystemKey)
 sub = [];
+requestedAliases = localSubsystemAliases(subsystemKey);
 for iSub = 1:numel(results.SubsystemResults)
     candidateKey = upper(regexprep(string(results.SubsystemResults(iSub).Name), '[^A-Za-z0-9]', ''));
-    if candidateKey == subsystemKey
+    candidateAliases = localSubsystemAliases(candidateKey);
+    if any(candidateAliases == subsystemKey) || any(requestedAliases == candidateKey) || ...
+            any(ismember(candidateAliases, requestedAliases)) || ...
+            contains(candidateKey, subsystemKey) || contains(subsystemKey, candidateKey)
         sub = results.SubsystemResults(iSub);
         return;
     end
 end
+end
+
+function aliases = localSubsystemAliases(subsystemKey)
+aliases = string(subsystemKey);
+normalized = upper(regexprep(string(subsystemKey), '[^A-Za-z0-9]', ''));
+aliases(end + 1) = normalized;
+
+switch normalized
+    case "POWERTRAINCONTROLLER"
+        aliases(end + 1:end + 4) = ["POWERTRAINCONTROLLER", "POWERTRAIN", "PTCONTROLLER", "ANALYZEPOWERTRAINCONTROLLER"];
+    case "ENVIRONMENT"
+        aliases(end + 1:end + 2) = ["ENVIRONMENT", "ANALYZEENVIRONMENT"];
+    case "DRIVER"
+        aliases(end + 1:end + 2) = ["DRIVER", "ANALYZEDRIVER"];
+end
+
+aliases = unique(aliases);
+end
+
+function names = localAvailableSubsystemNames(results)
+names = strings(0, 1);
+if ~isfield(results, 'SubsystemResults') || isempty(results.SubsystemResults)
+    names = "None";
+    return;
+end
+
+for iSub = 1:numel(results.SubsystemResults)
+    names(end + 1, 1) = string(results.SubsystemResults(iSub).Name); %#ok<AGROW>
+end
+names = unique(names);
 end
 
 function textValue = localSignalList(signalValue)
