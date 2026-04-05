@@ -110,12 +110,12 @@ defaults.Company = "Company / Department [Insert]";
 defaults.IncludeAppendixTables = true;
 defaults.MaxAppendixRows = 120;
 defaults.MaxSummaryRows = 12;
-defaults.MaxSubsystemFigures = 2;
+defaults.MaxSubsystemFigures = 10;
 defaults.TemplateSubtitle = "Vehicle-Level and Subsystem-Level Technical Assessment";
 defaults.PlaceholderTag = "[Insert]";
 defaults.DateString = string(datetime('now', 'Format', 'dd-MMM-yyyy'));
 defaults.CreateSupportingTemplateFiles = false;
-defaults.ActiveSubsystemReportScope = ["ENVIRONMENT", "DRIVER"];
+defaults.ActiveSubsystemReportScope = "ALL";
 
 fields = fieldnames(defaults);
 for iField = 1:numel(fields)
@@ -1001,31 +1001,25 @@ end
 function localWriteSubsystemSection(doc, selection, reportData, state)
 localAddHeading(selection, '12. Subsystem-Level Root Cause Analysis', 1);
 
-environmentResult = localFindSubsystemResult(reportData, "ENVIRONMENT");
-driverResult = localFindSubsystemResult(reportData, "DRIVER");
-
-if isempty(environmentResult) && isempty(driverResult)
+selectedSubsystems = localSelectSubsystemsForReport(reportData);
+if isempty(selectedSubsystems)
     localAddHeading(selection, '12.1 Subsystem RCA Placeholder', 2);
-    selection.TypeText('[Insert subsystem-level RCA findings for Environment and Driver, including KPI tables, engineering interpretation, and supporting plots.]');
+    selection.TypeText('[Insert subsystem-level RCA findings, including KPI tables, engineering interpretation, and supporting plots.]');
     selection.TypeParagraph;
     return;
 end
 
-localWriteFocusedSubsystemSection(doc, selection, state, ...
-    '12.1 Environment Subsystem Root Cause Analysis', ...
-    'Environment', ...
-    environmentResult, ...
-    'The environment subsystem defines the route and operating context seen by the vehicle. Desired speed, road slope, and ambient temperature explain duty-cycle severity, route load severity, and thermal context, and therefore provide essential evidence before assigning blame to downstream propulsion or control subsystems.', ...
-    {'Environment_Overview', 'Environment_Severity_Map'}, ...
-    {'Environment overview and route context', 'Environment severity map and route classification'});
-
-localWriteFocusedSubsystemSection(doc, selection, state, ...
-    '12.2 Driver Subsystem Root Cause Analysis', ...
-    'Driver', ...
-    driverResult, ...
-    'The driver subsystem converts desired vehicle behaviour into accelerator and brake requests. Its PI and feedforward behaviour influences speed tracking quality, event response, and the extent to which route severity is converted into demand on the propulsion and brake systems.', ...
-    {'Driver_Tracking_Overview', 'Driver_Event_Highlights', 'Driver_Error_Maps', 'Driver_Bad_Segments', 'Driver_Gearwise_Tracking'}, ...
-    {'Driver tracking overview', 'Driver accel / brake event highlights', 'Driver error maps', 'Driver bad segment view', 'Driver gear-wise tracking'});
+for iSub = 1:numel(selectedSubsystems)
+    sub = selectedSubsystems(iSub);
+    headingText = sprintf('12.%d %s Subsystem Root Cause Analysis', iSub, localPrettyName(sub.Name));
+    localWriteFocusedSubsystemSection(doc, selection, state, ...
+        headingText, ...
+        localPrettyName(sub.Name), ...
+        sub, ...
+        localSubsystemRoleText(sub.Name), ...
+        localBuildSubsystemFigureTokenList(sub, reportData.Options.MaxSubsystemFigures), ...
+        localBuildSubsystemFigureCaptions(sub, reportData.Options.MaxSubsystemFigures));
+end
 end
 
 function localWriteEventDeepDiveSection(doc, selection, reportData, state)
@@ -1108,6 +1102,101 @@ for iSub = 1:numel(reportData.SubsystemResults)
 end
 end
 
+function selectedSubsystems = localSelectSubsystemsForReport(reportData)
+selectedSubsystems = reportData.SubsystemResults;
+if isempty(selectedSubsystems)
+    return;
+end
+
+scope = string(reportData.Options.ActiveSubsystemReportScope);
+scope = upper(regexprep(scope(:), '[^A-Za-z0-9]', ''));
+scope(scope == "") = [];
+
+preferredOrder = [ ...
+    "ENVIRONMENT"; ...
+    "DRIVER"; ...
+    "POWERTRAINCONTROLLER"; ...
+    "ELECTRICDRIVE"; ...
+    "TRANSMISSION"; ...
+    "FINALDRIVE"; ...
+    "PNEUMATICBRAKESYSTEM"; ...
+    "VEHICLEDYNAMICS"; ...
+    "BATTERY"; ...
+    "BATTERYMANAGEMENTSYSTEM"; ...
+    "AUXILIARYLOAD"];
+
+if ~(any(scope == "ALL") || isempty(scope))
+    keepMask = false(numel(selectedSubsystems), 1);
+    for iSub = 1:numel(selectedSubsystems)
+        normalizedName = upper(regexprep(string(selectedSubsystems(iSub).Name), '[^A-Za-z0-9]', ''));
+        keepMask(iSub) = any(scope == normalizedName);
+    end
+    selectedSubsystems = selectedSubsystems(keepMask);
+end
+
+if isempty(selectedSubsystems)
+    return;
+end
+
+orderIdx = localOrderSubsystems(selectedSubsystems, preferredOrder);
+selectedSubsystems = selectedSubsystems(orderIdx);
+end
+
+function roleText = localSubsystemRoleText(subsystemName)
+normalizedName = upper(regexprep(string(subsystemName), '[^A-Za-z0-9]', ''));
+switch normalizedName
+    case "ENVIRONMENT"
+        roleText = 'The environment subsystem defines the route and operating context seen by the vehicle. Desired speed, road slope, and ambient temperature explain duty-cycle severity, route load severity, and thermal context, and therefore provide essential evidence before assigning blame to downstream propulsion or control subsystems.';
+    case "DRIVER"
+        roleText = 'The driver subsystem converts desired vehicle behaviour into accelerator and brake requests. Its PI and feedforward behaviour influences speed tracking quality, event response, and the extent to which route severity is converted into demand on the propulsion and brake systems.';
+    case "POWERTRAINCONTROLLER"
+        roleText = 'The powertrain controller converts pedal demand and operating context into torque requests and torque-limit management for the electric machines. It shapes driveability, recuperation behaviour, and how close the propulsion system operates to its available envelope.';
+    case "ELECTRICDRIVE"
+        roleText = 'The electric drive subsystem converts commanded torque into motor torque, speed, electrical power flow, and machine losses. It is a primary determinant of propulsion efficiency, regenerative effectiveness, and machine operating-region quality.';
+    case "TRANSMISSION"
+        roleText = 'The transmission subsystem transfers summed motor torque to the driveline using the selected gear state and ratio. Its shift behaviour, torque transfer quality, and internal losses directly affect performance and energy efficiency.';
+    case "FINALDRIVE"
+        roleText = 'The final drive converts gearbox torque into net tractive effort at the axle and road interface. It provides the force path that determines launch capability, hill-climb margin, and force-delivery quality at the vehicle level.';
+    case "PNEUMATICBRAKESYSTEM"
+        roleText = 'The pneumatic brake subsystem provides friction braking force and braking power dissipation. Its interaction with regenerative braking is critical for energy recovery effectiveness, stopping control, and avoidable brake-energy loss.';
+    case "VEHICLEDYNAMICS"
+        roleText = 'The vehicle dynamics subsystem combines tractive force, braking force, and route loads into wheel force, acceleration, speed, and position. It is the direct evidence layer for whether the full vehicle is behaving physically and meeting demand.';
+    case "BATTERY"
+        roleText = 'The battery subsystem supplies and absorbs electrical energy for propulsion and regeneration while introducing losses, voltage behaviour, thermal behaviour, and state-of-charge constraints. It is a first-order driver of range and power capability.';
+    case "BATTERYMANAGEMENTSYSTEM"
+        roleText = 'The battery management system defines allowable charge and discharge limits in current and power. It governs when the energy storage system becomes the limiting element for performance or recuperation.';
+    case "AUXILIARYLOAD"
+        roleText = 'The auxiliary subsystem draws non-traction electrical power from the HV system. Its duty-cycle and magnitude determine how much usable propulsion energy and range are consumed by support loads instead of vehicle motion.';
+    otherwise
+        roleText = 'This subsystem contributes to vehicle behaviour through its logged outputs, KPI trends, and interaction with the rest of the propulsion and vehicle system.';
+end
+end
+
+function figureTokens = localBuildSubsystemFigureTokenList(sub, maxFigures)
+figureFiles = localExistingFiles(string(sub.FigureFiles(:)));
+if isempty(figureFiles)
+    figureTokens = strings(0, 1);
+    return;
+end
+count = min(numel(figureFiles), maxFigures);
+figureTokens = figureFiles(1:count);
+end
+
+function figureCaptions = localBuildSubsystemFigureCaptions(sub, maxFigures)
+figureFiles = localExistingFiles(string(sub.FigureFiles(:)));
+if isempty(figureFiles)
+    figureCaptions = strings(0, 1);
+    return;
+end
+count = min(numel(figureFiles), maxFigures);
+figureCaptions = strings(count, 1);
+for iFile = 1:count
+    [~, baseName] = fileparts(char(figureFiles(iFile)));
+    captionName = strrep(baseName, '_', ' ');
+    figureCaptions(iFile) = sprintf('%s RCA - %s', localPrettyName(sub.Name), captionName);
+end
+end
+
 function filePath = localFindSubsystemFigure(sub, token)
 filePath = '';
 figureFiles = localExistingFiles(string(sub.FigureFiles(:)));
@@ -1118,6 +1207,8 @@ mask = contains(lower(figureFiles), lower(string(token)));
 idx = find(mask, 1, 'first');
 if ~isempty(idx)
     filePath = char(figureFiles(idx));
+elseif strlength(string(token)) > 0 && isfile(char(string(token)))
+    filePath = char(string(token));
 end
 end
 
@@ -1189,20 +1280,26 @@ if state.UseActualData && height(reportData.BadSegmentTable) > 0
     count = min(10, height(reportData.BadSegmentTable));
     for iRow = 1:count
         row = reportData.BadSegmentTable(iRow, :);
-        recommendedOwner = localLookupRecommendationOwner(reportData, row.PrimaryCause);
-        recommendedAction = localLookupRecommendation(reportData, row.PrimaryCause);
+        primaryCause = localRowFieldText(row, {'PrimaryCause', 'CauseName'}, '[Insert likely root cause]');
+        issueType = localRowFieldText(row, {'IssueType'}, '[Insert Symptom]');
+        evidenceText = localRowFieldText(row, {'EvidenceSignals', 'Evidence', 'SignalBasis'}, '[Insert supporting evidence]');
+        confidenceText = localRowFieldText(row, {'Confidence', 'ConfidenceLevel'}, 'Medium');
+        startTimeText = localRowFieldNumber(row, {'StartTime_s'}, NaN);
+        endTimeText = localRowFieldNumber(row, {'EndTime_s'}, NaN);
+        recommendedOwner = localLookupRecommendationOwner(reportData, primaryCause);
+        recommendedAction = localLookupRecommendation(reportData, primaryCause);
         rows(end + 1, :) = { ...
             sprintf('RCA-%02d', iRow), ...
-            char(row.IssueType), ...
+            issueType, ...
             '[Insert KPI / see supporting tables]', ...
-            sprintf('%.1f s to %.1f s', row.StartTime_s, row.EndTime_s), ...
+            sprintf('%.1f s to %.1f s', startTimeText, endTimeText), ...
             'Vehicle efficiency / performance / drivability penalty', ...
-            char(row.PrimaryCause), ...
-            char(row.EvidenceSignals), ...
-            char(row.Confidence), ...
+            primaryCause, ...
+            evidenceText, ...
+            confidenceText, ...
             recommendedOwner, ...
             recommendedAction, ...
-            localPriorityFromConfidence(char(row.Confidence))}; %#ok<AGROW>
+            localPriorityFromConfidence(confidenceText)}; %#ok<AGROW>
     end
 end
 
@@ -1418,7 +1515,15 @@ for iRow = 1:size(rows, 1)
     end
 end
 
-selection.MoveDown;
+try
+    selection.SetRange(doc.Range.End - 1, doc.Range.End - 1);
+catch
+    try
+        selection.EndKey(6);
+    catch
+        selection.MoveDown;
+    end
+end
 selection.TypeParagraph;
 selection.TypeParagraph;
 end
@@ -1463,6 +1568,11 @@ end
 end
 
 function localAddHeading(selection, textValue, level)
+try
+    selection.Collapse(0);
+catch
+end
+selection.TypeParagraph;
 switch level
     case 1
         styleName = 'Heading 1';
@@ -1884,6 +1994,39 @@ try
     end
     action = char(reportData.OptimizationTable.Recommendation(idx));
 catch
+end
+end
+
+function textValue = localRowFieldText(rowTable, candidateNames, defaultValue)
+textValue = char(string(defaultValue));
+for iName = 1:numel(candidateNames)
+    fieldName = candidateNames{iName};
+    if ismember(fieldName, rowTable.Properties.VariableNames)
+        textValue = localCellToWordText(rowTable.(fieldName)(1));
+        if strlength(string(textValue)) == 0
+            textValue = char(string(defaultValue));
+        end
+        return;
+    end
+end
+end
+
+function numberValue = localRowFieldNumber(rowTable, candidateNames, defaultValue)
+numberValue = defaultValue;
+for iName = 1:numel(candidateNames)
+    fieldName = candidateNames{iName};
+    if ismember(fieldName, rowTable.Properties.VariableNames)
+        candidate = rowTable.(fieldName)(1);
+        if isnumeric(candidate) || islogical(candidate)
+            numberValue = double(candidate);
+        else
+            parsed = str2double(string(candidate));
+            if ~isnan(parsed)
+                numberValue = parsed;
+            end
+        end
+        return;
+    end
 end
 end
 
