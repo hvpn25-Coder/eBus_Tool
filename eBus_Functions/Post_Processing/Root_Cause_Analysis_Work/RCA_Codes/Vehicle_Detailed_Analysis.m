@@ -177,6 +177,7 @@ subsystemResults = repmat(struct('Name', "", 'Available', false, 'RequiredSignal
 for iAnalyzer = 1:numel(analyzers)
     try
         subsystemResults(iAnalyzer) = analyzers{iAnalyzer}(analysisData, outputPaths, config);
+        subsystemResults(iAnalyzer) = RCA_ApplySpecificationContext(subsystemResults(iAnalyzer), analysisData);
     catch analysisException
         subsystemResults(iAnalyzer).Name = string(func2str(analyzers{iAnalyzer}));
         subsystemResults(iAnalyzer).Warnings = "Subsystem analysis failed: " + string(analysisException.message);

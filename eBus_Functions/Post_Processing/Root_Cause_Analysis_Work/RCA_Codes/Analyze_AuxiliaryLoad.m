@@ -241,7 +241,7 @@ ylabel('Power (kW)');
 grid on;
 
 subplot(2, 2, 3);
-valid3 = isfinite(auxVoltLike(auxCurr, auxPwr)) & isfinite(auxCurr);
+valid3 = isfinite(auxCurr) & isfinite(auxPwr);
 scatter(auxCurr(valid3), auxPwr(valid3), 12, config.Plot.Colors.Vehicle, 'filled');
 title('Auxiliary Power Versus Current');
 xlabel('Current (A)');
@@ -271,11 +271,6 @@ grid on;
 
 plotFile = string(RCA_SaveFigure(fig, outputFolder, 'AuxiliaryLoad_EnergyBreakdown', config));
 close(fig);
-end
-
-function value = auxVoltLike(auxCurr, auxPwr)
-value = auxCurr;
-value(~isfinite(auxPwr)) = NaN;
 end
 
 function plotFiles = localAppendPlotFile(plotFiles, plotFile)
