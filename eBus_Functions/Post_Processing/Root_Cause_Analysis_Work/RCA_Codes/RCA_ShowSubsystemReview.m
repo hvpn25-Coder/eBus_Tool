@@ -140,6 +140,8 @@ switch normalized
         aliases = [aliases, "BATTERY", "PACK", "ENERGYSTORAGE", "ANALYZEBATTERY"];
     case "BATTERYMANAGEMENTSYSTEM"
         aliases = [aliases, "BATTERYMANAGEMENTSYSTEM", "BMS", "ANALYZEBATTERYMANAGEMENTSYSTEM"];
+    case "AUXILIARYLOAD"
+        aliases = [aliases, "AUXILIARYLOAD", "AUXILIARY", "AUXLOAD", "ANALYZEAUXILIARYLOAD"];
 end
 
 aliases = unique(aliases);
