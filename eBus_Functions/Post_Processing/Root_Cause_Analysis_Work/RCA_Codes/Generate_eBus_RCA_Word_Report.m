@@ -57,7 +57,7 @@ catch wordException
         'Microsoft Word automation could not be started: %s', wordException.message);
 end
 
-reportPath = fullfile(outputFolder, 'eBus_Simulation_Root_Cause_Analysis_Report.docx');
+reportPath = fullfile(outputFolder, localReportFileName(reportData.Options.Language));
 templatePath = "";
 samplePath = "";
 
@@ -68,8 +68,8 @@ try
         if ~exist(supportFolder, 'dir')
             mkdir(supportFolder);
         end
-        templatePath = fullfile(supportFolder, 'eBus_Simulation_Root_Cause_Analysis_Report_Template.docx');
-        samplePath = fullfile(supportFolder, 'eBus_Simulation_Root_Cause_Analysis_Report_Sample.docx');
+        templatePath = fullfile(supportFolder, localTemplateFileName(reportData.Options.Language));
+        samplePath = fullfile(supportFolder, localSampleFileName(reportData.Options.Language));
         localCreateReportDocument(wordApp, reportData, templatePath, 'template');
         localCreateReportDocument(wordApp, reportData, samplePath, 'sample');
     end
@@ -91,6 +91,30 @@ fprintf('\nWord report generation completed.\n');
 fprintf('  Report   : %s\n', reportPath);
 if strlength(templatePath) > 0
     fprintf('  Template : %s\n', templatePath);
+end
+
+function fileName = localReportFileName(language)
+if string(language) == "DE"
+    fileName = 'eBus_Simulation_Root_Cause_Analysis_Report_DE.docx';
+else
+    fileName = 'eBus_Simulation_Root_Cause_Analysis_Report.docx';
+end
+end
+
+function fileName = localTemplateFileName(language)
+if string(language) == "DE"
+    fileName = 'eBus_Simulation_Root_Cause_Analysis_Report_Template_DE.docx';
+else
+    fileName = 'eBus_Simulation_Root_Cause_Analysis_Report_Template.docx';
+end
+end
+
+function fileName = localSampleFileName(language)
+if string(language) == "DE"
+    fileName = 'eBus_Simulation_Root_Cause_Analysis_Report_Sample_DE.docx';
+else
+    fileName = 'eBus_Simulation_Root_Cause_Analysis_Report_Sample.docx';
+end
 end
 if strlength(samplePath) > 0
     fprintf('  Sample   : %s\n', samplePath);
@@ -116,12 +140,23 @@ defaults.PlaceholderTag = "[Insert]";
 defaults.DateString = string(datetime('now', 'Format', 'dd-MMM-yyyy'));
 defaults.CreateSupportingTemplateFiles = false;
 defaults.ActiveSubsystemReportScope = "ALL";
+defaults.Language = "EN";
 
 fields = fieldnames(defaults);
 for iField = 1:numel(fields)
     if ~isfield(options, fields{iField}) || isempty(options.(fields{iField}))
         options.(fields{iField}) = defaults.(fields{iField});
     end
+end
+options.Language = localNormalizeLanguage(options.Language);
+end
+
+function language = localNormalizeLanguage(languageValue)
+language = upper(strtrim(char(string(languageValue))));
+if any(strcmp(language, {'DE', 'DEU', 'GERMAN', 'DEUTSCH'}))
+    language = "DE";
+else
+    language = "EN";
 end
 end
 
@@ -247,8 +282,8 @@ reportData.HasResults = ~isempty(results);
 reportData.Results = results;
 reportData.SourceInfo = sourceInfo;
 reportData.Options = options;
-reportData.Title = "eBus Simulation Root Cause Analysis";
-reportData.Subtitle = string(options.TemplateSubtitle);
+reportData.Title = localLocalizedTitle(options.Language);
+reportData.Subtitle = localLocalizedSubtitle(options.Language, options.TemplateSubtitle);
 reportData.Project = string(options.Project);
 reportData.Author = string(options.Author);
 reportData.Version = string(options.Version);
@@ -256,6 +291,7 @@ reportData.Confidentiality = string(options.Confidentiality);
 reportData.Company = string(options.Company);
 reportData.DateString = string(options.DateString);
 reportData.PlaceholderTag = string(options.PlaceholderTag);
+reportData.Language = string(options.Language);
 reportData.RunSourceText = localResolveRunSourceText(results, sourceInfo);
 reportData.SignalCatalog = localGetNestedTable(results, {'Metadata', 'SignalCatalog'});
 reportData.SpecCatalog = localGetNestedTable(results, {'Metadata', 'SpecCatalog'});
@@ -279,6 +315,22 @@ reportData.ThresholdTable = localGetThresholdTable(results);
 reportData.Executive = localBuildExecutiveSummary(reportData);
 reportData.Abbreviations = localBuildAbbreviationTable();
 reportData.SectionMap = localBuildSectionSourceMap();
+end
+
+function titleText = localLocalizedTitle(language)
+if string(language) == "DE"
+    titleText = "eBus Simulations Root-Cause-Analyse";
+else
+    titleText = "eBus Simulation Root Cause Analysis";
+end
+end
+
+function subtitleText = localLocalizedSubtitle(language, defaultSubtitle)
+if string(language) == "DE"
+    subtitleText = "Technische Bewertung auf Fahrzeug- und Subsystemebene";
+else
+    subtitleText = string(defaultSubtitle);
+end
 end
 
 function sourceText = localResolveRunSourceText(results, sourceInfo)
@@ -526,6 +578,8 @@ state.Mode = string(mode);
 state.UseActualData = mode ~= "template";
 state.IsTemplate = mode == "template";
 state.IsSample = mode == "sample";
+localCurrentReportLanguage(reportData.Options.Language);
+cleanupLanguage = onCleanup(@() localCurrentReportLanguage("EN"));
 
 localConfigureDocument(doc);
 
@@ -555,6 +609,7 @@ localWriteAppendixSection(doc, selection, reportData, state);
 
 localUpdateAllFields(doc);
 localSaveDocument(doc, outputPath);
+clear cleanupLanguage
 clear cleanupDoc
 end
 
@@ -700,11 +755,11 @@ end
 
 function localWriteFigureAndTableLists(selection)
 localAddHeading(selection, '5. List of Figures', 1);
-localInsertField(selection, 'TOC \h \z \c "Figure"');
+localInsertField(selection, sprintf('TOC \\h \\z \\c "%s"', char(localCaptionLabel('Figure'))));
 selection.TypeParagraph;
 
 localAddHeading(selection, '6. List of Tables', 1);
-localInsertField(selection, 'TOC \h \z \c "Table"');
+localInsertField(selection, sprintf('TOC \\h \\z \\c "%s"', char(localCaptionLabel('Table'))));
 selection.TypeParagraph;
 end
 
@@ -1548,7 +1603,7 @@ if ~state.IsTemplate && strlength(string(filePath)) > 0 && isfile(filePath)
     end
     selection.TypeParagraph;
 else
-    selection.TypeText(['[Insert Figure] ' char(captionText)]);
+    selection.TypeText(char(localTranslateText(['[Insert Figure] ' char(captionText)])));
     selection.TypeParagraph;
 end
 
@@ -1557,12 +1612,13 @@ selection.TypeParagraph;
 end
 
 function localAddCaption(selection, labelName, captionText)
+captionLabel = localCaptionLabel(labelName);
 try
-    invoke(selection, 'InsertCaption', labelName, ['. ' char(string(captionText))]);
+    invoke(selection, 'InsertCaption', captionLabel, ['. ' char(string(localTranslateText(captionText)))]);
     selection.TypeParagraph;
 catch
     localApplyStyle(selection, 'Caption');
-    selection.TypeText(sprintf('%s. %s', labelName, char(string(captionText))));
+    selection.TypeText(sprintf('%s. %s', char(captionLabel), char(string(localTranslateText(captionText)))));
     selection.TypeParagraph;
 end
 end
@@ -1582,7 +1638,7 @@ switch level
         styleName = 'Heading 3';
 end
 localApplyStyle(selection, styleName);
-selection.TypeText(char(string(textValue)));
+selection.TypeText(char(string(localTranslateText(textValue))));
 selection.TypeParagraph;
 localApplyStyle(selection, 'Normal');
 end
@@ -1601,9 +1657,9 @@ end
 function localWriteLabelParagraph(selection, labelText, bodyText)
 localApplyStyle(selection, 'Normal');
 selection.Font.Bold = true;
-selection.TypeText([char(string(labelText)) ': ']);
+selection.TypeText([char(string(localTranslateText(labelText))) ': ']);
 selection.Font.Bold = false;
-selection.TypeText(char(string(bodyText)));
+selection.TypeText(char(string(localTranslateText(bodyText))));
 selection.TypeParagraph;
 end
 
@@ -1614,12 +1670,12 @@ if nargin >= 2 && strlength(string(headingLabel)) > 0
     localWriteLabelParagraph(selection, headingLabel, '');
 end
 if isempty(values)
-    selection.TypeText('- [Insert item]');
+    selection.TypeText(char(localTranslateText('- [Insert item]')));
     selection.TypeParagraph;
     return;
 end
 for iValue = 1:numel(values)
-    selection.TypeText(['- ' char(values(iValue))]);
+    selection.TypeText(['- ' char(string(localTranslateText(values(iValue))))]);
     selection.TypeParagraph;
 end
 end
@@ -2107,8 +2163,136 @@ end
 
 function localTypeBoldLine(selection, labelText, valueText)
 selection.Font.Bold = true;
-selection.TypeText(char(string(labelText)));
+selection.TypeText(char(string(localTranslateText(labelText))));
 selection.Font.Bold = false;
 selection.TypeText(char(string(valueText)));
 selection.TypeParagraph;
+end
+
+function captionLabel = localCaptionLabel(labelName)
+if localCurrentReportLanguage() == "DE"
+    switch upper(char(string(labelName)))
+        case 'FIGURE'
+            captionLabel = "Abbildung";
+        case 'TABLE'
+            captionLabel = "Tabelle";
+        otherwise
+            captionLabel = string(localTranslateText(labelName));
+    end
+else
+    captionLabel = string(labelName);
+end
+end
+
+function language = localCurrentReportLanguage(newLanguage)
+persistent currentLanguage
+if isempty(currentLanguage)
+    currentLanguage = "EN";
+end
+if nargin >= 1 && strlength(string(newLanguage)) > 0
+    currentLanguage = localNormalizeLanguage(newLanguage);
+end
+language = currentLanguage;
+end
+
+function translated = localTranslateText(textValue)
+translated = string(textValue);
+if localCurrentReportLanguage() ~= "DE"
+    return;
+end
+
+map = localGermanTranslationMap();
+for iValue = 1:numel(translated)
+    key = char(translated(iValue));
+    if isKey(map, key)
+        translated(iValue) = string(map(key));
+    end
+end
+end
+
+function map = localGermanTranslationMap()
+persistent translationMap
+if ~isempty(translationMap)
+    map = translationMap;
+    return;
+end
+
+keys = { ...
+    'Figure', 'Table', ...
+    'Project / Program: ', 'Author: ', 'Date: ', 'Version: ', 'Confidentiality: ', 'Company / Department: ', ...
+    '2. Document Control', '2.1 Version History', '2.2 Review and Approval', ...
+    '3. Executive Summary', '4. Table of Contents', '5. List of Figures', '6. List of Tables', ...
+    '7. Abbreviations / Nomenclature', '8. Introduction', ...
+    '8.1 Background of eBus Simulation Program', '8.2 Objective of the Root Cause Analysis', ...
+    '8.3 Questions This Report Answers', '8.4 Intended Audience', '8.5 Report Boundaries and Assumptions', ...
+    '9. Simulation and Data Overview', '9.1 Model Overview', '9.2 Simulation Cases / Drive Cycles / Scenarios Analyzed', ...
+    '9.3 Data Sources', '9.4 Logging Overview', '9.5 Important Assumptions', '9.6 Data Quality Checks Performed', ...
+    '9.7 Known Data Limitations', '10. Analysis Methodology', '10.1 Overall RCA Workflow', ...
+    '10.2 KPI Calculation Approach', '10.3 Vehicle-Level Analysis Approach', '10.4 Subsystem-Level Drill-Down Approach', ...
+    '10.5 Event-Based Segmentation Approach', '10.6 Bad Segment Detection Logic', ...
+    '10.7 Correlation / Causality Logic', '10.8 Rules Used to Classify Probable Root Causes', ...
+    '10.9 Confidence Ranking of Findings', '11. Vehicle-Level Assessment', ...
+    '11.1 Vehicle Speed Tracking', '11.2 Energy Consumption', '11.3 Efficiency', '11.4 Range Impact', ...
+    '11.5 Performance Limitations', '11.6 Operational Anomalies', '11.7 Thermal or Environmental Impact', ...
+    '11.8 Regeneration Behavior', '11.9 Auxiliary Load Influence', '11.10 Drive Cycle Sensitivity', ...
+    '12. Subsystem-Level Root Cause Analysis', '13. Event-Based Deep Dives', ...
+    '13.1 Acceleration Events', '13.2 Braking Events', '13.3 Cruising Events', ...
+    '13.4 Hill Climb / Grade Events', '13.5 High Auxiliary Load Events', ...
+    '13.6 Low SoC / Power-Limited Events', '14. KPI Dashboard Summary', '15. Root Cause Summary Table', ...
+    '16. Recommendations', '16.1 Immediate Actions', '16.2 Medium-Term Model Improvements', ...
+    '16.3 Controls / Calibration Improvements', '16.4 Design Improvement Opportunities', ...
+    '16.5 Additional Simulations / Tests Required', '16.6 Measurement / Validation Recommendations', ...
+    '17. Conclusion', '18. Appendices', '18.1 Detailed Signal List', '18.2 Full KPI Definitions', ...
+    '18.3 Data Cleaning Rules', '18.4 Scenario / Run Descriptions', '18.5 Extra Plots', ...
+    '18.6 MATLAB Script References', '18.7 Assumptions and Limitations', ...
+    '18.8 Mapping of Report Sections to Source Files', '18.9 Style Guide for Future Reuse', ...
+    'Why this analysis was performed', 'What data was used', 'Top 5 critical findings', ...
+    'Top 5 likely root causes', 'Top recommended actions', 'Overall vehicle risk / opportunity summary', ...
+    'Observation', 'Evidence', 'Engineering interpretation', 'Root cause hypothesis', ...
+    'Severity / confidence', 'Recommended next step', 'Trigger definition', ...
+    'Representative bad cases', 'Best cases for comparison', 'What differentiates them', ...
+    'Root cause reasoning', 'Role in vehicle behavior', 'Signals used', 'Key KPIs', ...
+    'Observed issue patterns', 'Root cause candidates', 'Recommended modeling / logic / calibration improvements', ...
+    'Limitations', 'Recommended next actions', 'Document purpose', 'Scope', '- [Insert item]'};
+
+values = { ...
+    'Abbildung', 'Tabelle', ...
+    'Projekt / Programm: ', 'Autor: ', 'Datum: ', 'Version: ', 'Vertraulichkeit: ', 'Firma / Abteilung: ', ...
+    '2. Dokumentenlenkung', '2.1 Versionshistorie', '2.2 Prüfung und Freigabe', ...
+    '3. Management Summary', '4. Inhaltsverzeichnis', '5. Abbildungsverzeichnis', '6. Tabellenverzeichnis', ...
+    '7. Abkürzungen / Nomenklatur', '8. Einleitung', ...
+    '8.1 Hintergrund des eBus-Simulationsprogramms', '8.2 Ziel der Root-Cause-Analyse', ...
+    '8.3 Fragestellungen dieses Berichts', '8.4 Zielgruppe', '8.5 Berichtsgrenzen und Annahmen', ...
+    '9. Simulations- und Datenübersicht', '9.1 Modellübersicht', '9.2 Analysierte Simulationsfälle / Fahrzyklen / Szenarien', ...
+    '9.3 Datenquellen', '9.4 Logging-Übersicht', '9.5 Wichtige Annahmen', '9.6 Durchgeführte Datenqualitätsprüfungen', ...
+    '9.7 Bekannte Datenbeschränkungen', '10. Analysemethodik', '10.1 Gesamter RCA-Workflow', ...
+    '10.2 KPI-Berechnungsmethodik', '10.3 Ansatz der Fahrzeuganalyse', '10.4 Ansatz der Subsystem-Vertiefung', ...
+    '10.5 Ereignisbasierte Segmentierung', '10.6 Logik zur Erkennung schlechter Segmente', ...
+    '10.7 Korrelations- / Kausalitätslogik', '10.8 Regeln zur Einstufung wahrscheinlicher Ursachen', ...
+    '10.9 Vertrauensniveau der Ergebnisse', '11. Fahrzeugbewertung', ...
+    '11.1 Fahrgeschwindigkeitsnachführung', '11.2 Energieverbrauch', '11.3 Effizienz', '11.4 Reichweiteneinfluss', ...
+    '11.5 Leistungsbegrenzungen', '11.6 Betriebsanomalien', '11.7 Thermischer oder umgebungsbedingter Einfluss', ...
+    '11.8 Rekuperationsverhalten', '11.9 Einfluss der Nebenverbraucher', '11.10 Sensitivität gegenüber dem Fahrzyklus', ...
+    '12. Root-Cause-Analyse auf Subsystemebene', '13. Ereignisbasierte Detailanalysen', ...
+    '13.1 Beschleunigungsereignisse', '13.2 Bremsereignisse', '13.3 Konstantfahrt-Ereignisse', ...
+    '13.4 Steigungs- / Gefälleereignisse', '13.5 Ereignisse mit hoher Nebenverbraucherlast', ...
+    '13.6 Low-SoC- / leistungsbegrenzte Ereignisse', '14. KPI-Dashboard-Zusammenfassung', '15. Root-Cause-Zusammenfassungstabelle', ...
+    '16. Empfehlungen', '16.1 Sofortmaßnahmen', '16.2 Mittelfristige Modellverbesserungen', ...
+    '16.3 Regelungs- / Kalibrierungsverbesserungen', '16.4 Konstruktive Verbesserungspotenziale', ...
+    '16.5 Zusätzliche Simulationen / Tests', '16.6 Mess- / Validierungsempfehlungen', ...
+    '17. Fazit', '18. Anhänge', '18.1 Detaillierte Signalliste', '18.2 Vollständige KPI-Definitionen', ...
+    '18.3 Regeln zur Datenbereinigung', '18.4 Szenario- / Laufbeschreibungen', '18.5 Zusätzliche Plots', ...
+    '18.6 MATLAB-Skriptverweise', '18.7 Annahmen und Grenzen', ...
+    '18.8 Zuordnung der Berichtsabschnitte zu Quelldateien', '18.9 Stilrichtlinie zur Wiederverwendung', ...
+    'Warum diese Analyse durchgeführt wurde', 'Welche Daten verwendet wurden', 'Top-5-Schlüsselbefunde', ...
+    'Top-5-wahrscheinliche Ursachen', 'Top-Empfehlungen', 'Zusammenfassung von Gesamtrisiko / Chancenbild', ...
+    'Beobachtung', 'Nachweis', 'Technische Interpretation', 'Ursachenhypothese', ...
+    'Schweregrad / Vertrauen', 'Empfohlener nächster Schritt', 'Triggerdefinition', ...
+    'Repräsentative schlechte Fälle', 'Beste Vergleichsfälle', 'Was sie unterscheidet', ...
+    'Begründung der Ursachenanalyse', 'Rolle im Fahrzeugverhalten', 'Verwendete Signale', 'Wichtige KPIs', ...
+    'Beobachtete Musterausprägungen', 'Mögliche Ursachen', 'Empfohlene Modellierungs- / Logik- / Kalibrierungsverbesserungen', ...
+    'Einschränkungen', 'Empfohlene nächste Schritte', 'Dokumentzweck', 'Geltungsbereich', '- [Eintrag einfügen]'};
+
+translationMap = containers.Map(keys, values);
+map = translationMap;
 end
