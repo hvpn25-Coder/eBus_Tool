@@ -26,9 +26,9 @@ tractionPower = d.tractionPower_kW(:);
 gbxOutTrq = d.gearboxOutputTorque_Nm(:);
 vehSpeed = d.vehVel_kmh(:);
 roadSlope = d.roadSlope_pct(:);
-rollForce = d.rollResistanceForce_N(:);
-gradeForce = d.gradeForce_N(:);
-aeroForce = d.aeroDragForce_N(:);
+rollForce = localDerivedVector(d, 'rollingResistanceForce_N', n);
+gradeForce = localDerivedVector(d, 'gradeForce_N', n);
+aeroForce = localDerivedVector(d, 'aeroDragForce_N', n);
 gear = d.gearNumber(:);
 gearRatio = d.gearRatio(:);
 finalDriveRatio = d.finalDriveRatio;
@@ -199,6 +199,13 @@ dataValue = double(dataValue(:));
 count = min(numel(dataValue), n);
 if count > 0
     vector(1:count) = dataValue(1:count);
+end
+end
+
+function vector = localDerivedVector(derivedStruct, fieldName, n)
+vector = NaN(n, 1);
+if isfield(derivedStruct, fieldName)
+    vector = localResizeVector(derivedStruct.(fieldName), n);
 end
 end
 
