@@ -121,13 +121,13 @@ aliases(end + 1) = normalized;
 
 switch normalized
     case "POWERTRAINCONTROLLER"
-        aliases(end + 1:end + 4) = ["POWERTRAINCONTROLLER", "POWERTRAIN", "PTCONTROLLER", "ANALYZEPOWERTRAINCONTROLLER"];
+        aliases = [aliases, "POWERTRAINCONTROLLER", "POWERTRAIN", "PTCONTROLLER", "ANALYZEPOWERTRAINCONTROLLER"];
     case "ENVIRONMENT"
-        aliases(end + 1:end + 2) = ["ENVIRONMENT", "ANALYZEENVIRONMENT"];
+        aliases = [aliases, "ENVIRONMENT", "ANALYZEENVIRONMENT"];
     case "DRIVER"
-        aliases(end + 1:end + 2) = ["DRIVER", "ANALYZEDRIVER"];
+        aliases = [aliases, "DRIVER", "ANALYZEDRIVER"];
     case "ELECTRICDRIVE"
-        aliases(end + 1:end + 3) = ["ELECTRICDRIVE", "EDRIVE", "MOTORDRIVE", "ANALYZEELECTRICDRIVE"];
+        aliases = [aliases, "ELECTRICDRIVE", "EDRIVE", "MOTORDRIVE", "ANALYZEELECTRICDRIVE"];
 end
 
 aliases = unique(aliases);
