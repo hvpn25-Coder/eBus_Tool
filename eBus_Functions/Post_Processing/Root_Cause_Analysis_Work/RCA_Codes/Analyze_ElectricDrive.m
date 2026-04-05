@@ -238,7 +238,7 @@ end
 figureFolder = fullfile(outputPaths.FiguresSubsystem, 'ElectricDrive');
 plotFiles = localAppendPlotFile(plotFiles, localPlotPowerOverview(figureFolder, t, totalElecPwr, totalMechPwr, totalLossPwr, em1SpdRpm, em2SpdRpm, config));
 plotFiles = localAppendPlotFile(plotFiles, localPlotLimitsAndTorque(figureFolder, t, em1Trq, em2Trq, em1Max, em2Max, em1Min, em2Min, config));
-plotFiles = localAppendPlotFile(plotFiles, localPlotOperatingMaps(figureFolder, em1SpdRpm, em1Trq, em1EfficiencyDrive, em2SpdRpm, em2Trq, em2EfficiencyDrive, config));
+plotFiles = localAppendPlotFile(plotFiles, localPlotOperatingMaps(figureFolder, em1SpdRpm, em1Trq, em1EfficiencyDrive, em1EfficiencyRegen, em2SpdRpm, em2Trq, em2EfficiencyDrive, em2EfficiencyRegen, config));
 plotFiles = localAppendPlotFile(plotFiles, localPlotRegenAndLoss(figureFolder, t, tractiveEfficiency, regenEfficiency, lossShare, driveLimitUsage, regenLimitUsage, config));
 plotFiles = plotFiles(plotFiles ~= "");
 
@@ -359,28 +359,35 @@ plotFile = string(RCA_SaveFigure(fig, outputFolder, 'ElectricDrive_TorqueAndLimi
 close(fig);
 end
 
-function plotFile = localPlotOperatingMaps(outputFolder, em1SpdRpm, em1Trq, em1Eff, em2SpdRpm, em2Trq, em2Eff, config)
+function plotFile = localPlotOperatingMaps(outputFolder, em1SpdRpm, em1Trq, em1EffDrive, em1EffRegen, em2SpdRpm, em2Trq, em2EffDrive, em2EffRegen, config)
 plotFile = "";
 fig = figure('Color', 'w', 'Position', config.Plot.FigurePosition);
 
+em1EffCombined = em1EffDrive;
+em1EffCombined(isfinite(em1EffRegen)) = em1EffRegen(isfinite(em1EffRegen));
+em2EffCombined = em2EffDrive;
+em2EffCombined(isfinite(em2EffRegen)) = em2EffRegen(isfinite(em2EffRegen));
+
 subplot(2, 1, 1);
-valid1 = isfinite(em1SpdRpm) & isfinite(em1Trq) & isfinite(em1Eff);
-scatter(em1SpdRpm(valid1), em1Trq(valid1), 12, em1Eff(valid1) * 100, 'filled');
+valid1 = isfinite(em1SpdRpm) & isfinite(em1Trq) & isfinite(em1EffCombined);
+scatter(em1SpdRpm(valid1), em1Trq(valid1), 12, em1EffCombined(valid1) * 100, 'filled'); hold on;
+yline(0, '-', 'Color', config.Plot.Colors.Neutral, 'LineWidth', 0.8);
 title('Motor 1 Operating Map');
 xlabel('Motor speed (rpm)');
 ylabel('Motor torque (Nm)');
 cb1 = colorbar;
-cb1.Label.String = 'Drive efficiency (%)';
+cb1.Label.String = 'Drive / regen efficiency (%)';
 grid on;
 
 subplot(2, 1, 2);
-valid2 = isfinite(em2SpdRpm) & isfinite(em2Trq) & isfinite(em2Eff);
-scatter(em2SpdRpm(valid2), em2Trq(valid2), 12, em2Eff(valid2) * 100, 'filled');
+valid2 = isfinite(em2SpdRpm) & isfinite(em2Trq) & isfinite(em2EffCombined);
+scatter(em2SpdRpm(valid2), em2Trq(valid2), 12, em2EffCombined(valid2) * 100, 'filled'); hold on;
+yline(0, '-', 'Color', config.Plot.Colors.Neutral, 'LineWidth', 0.8);
 title('Motor 2 Operating Map');
 xlabel('Motor speed (rpm)');
 ylabel('Motor torque (Nm)');
 cb2 = colorbar;
-cb2.Label.String = 'Drive efficiency (%)';
+cb2.Label.String = 'Drive / regen efficiency (%)';
 grid on;
 
 plotFile = string(RCA_SaveFigure(fig, outputFolder, 'ElectricDrive_OperatingMaps', config));
