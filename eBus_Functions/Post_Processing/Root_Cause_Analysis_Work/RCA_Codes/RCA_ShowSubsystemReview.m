@@ -130,6 +130,8 @@ switch normalized
         aliases = [aliases, "ELECTRICDRIVE", "EDRIVE", "MOTORDRIVE", "ANALYZEELECTRICDRIVE"];
     case "TRANSMISSION"
         aliases = [aliases, "TRANSMISSION", "GEARBOX", "ANALYZETRANSMISSION"];
+    case "FINALDRIVE"
+        aliases = [aliases, "FINALDRIVE", "DIFF", "AXLEDRIVE", "ANALYZEFINALDRIVE"];
 end
 
 aliases = unique(aliases);
