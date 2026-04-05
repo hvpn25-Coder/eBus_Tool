@@ -132,6 +132,8 @@ switch normalized
         aliases = [aliases, "TRANSMISSION", "GEARBOX", "ANALYZETRANSMISSION"];
     case "FINALDRIVE"
         aliases = [aliases, "FINALDRIVE", "DIFF", "AXLEDRIVE", "ANALYZEFINALDRIVE"];
+    case "PNEUMATICBRAKESYSTEM"
+        aliases = [aliases, "PNEUMATICBRAKESYSTEM", "PNEUMATICBRAKE", "BRAKESYSTEM", "ANALYZEPNEUMATICBRAKESYSTEM"];
 end
 
 aliases = unique(aliases);
