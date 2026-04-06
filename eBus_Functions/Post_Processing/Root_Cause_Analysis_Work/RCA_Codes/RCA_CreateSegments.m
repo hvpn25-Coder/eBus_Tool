@@ -44,6 +44,8 @@ segmentEnd = [segmentStart(2:end) - 1; n];
 
 [segmentStart, segmentEnd] = localMergeShortSegments(segmentStart, segmentEnd, t, config);
 [segmentStart, segmentEnd] = localValidateSegments(segmentStart, segmentEnd, n);
+[segmentStart, segmentEnd] = localMergeEquivalentSegments(segmentStart, segmentEnd, ...
+    motionClass, gradeClass, auxClass, gear);
 
 if isempty(segmentStart) || isempty(segmentEnd)
     segmentStart = 1;
@@ -177,6 +179,50 @@ segmentPairs = segmentPairs(validMask, :);
 
 segmentStart = segmentPairs(:, 1);
 segmentEnd = segmentPairs(:, 2);
+end
+
+function [segmentStart, segmentEnd] = localMergeEquivalentSegments(segmentStart, segmentEnd, motionClass, gradeClass, auxClass, gear)
+segmentStart = segmentStart(:);
+segmentEnd = segmentEnd(:);
+
+if numel(segmentStart) <= 1 || numel(segmentStart) ~= numel(segmentEnd)
+    return;
+end
+
+keepMerging = true;
+while keepMerging
+    keepMerging = false;
+    if numel(segmentStart) <= 1
+        break;
+    end
+
+    for iSeg = 1:(numel(segmentStart) - 1)
+        currentIdx = segmentStart(iSeg):segmentEnd(iSeg);
+        nextIdx = segmentStart(iSeg + 1):segmentEnd(iSeg + 1);
+
+        currentMotion = localModeValue(motionClass(currentIdx));
+        nextMotion = localModeValue(motionClass(nextIdx));
+        currentGrade = localModeValue(gradeClass(currentIdx));
+        nextGrade = localModeValue(gradeClass(nextIdx));
+        currentAux = localModeValue(auxClass(currentIdx));
+        nextAux = localModeValue(auxClass(nextIdx));
+        currentGear = localDominantGear(gear(currentIdx));
+        nextGear = localDominantGear(gear(nextIdx));
+
+        sameMotion = currentMotion == nextMotion;
+        sameGrade = currentGrade == nextGrade;
+        sameAux = currentAux == nextAux;
+        sameGear = isequaln(currentGear, nextGear);
+
+        if sameMotion && sameGrade && sameAux && sameGear
+            segmentEnd(iSeg) = segmentEnd(iSeg + 1);
+            segmentStart(iSeg + 1) = [];
+            segmentEnd(iSeg + 1) = [];
+            keepMerging = true;
+            break;
+        end
+    end
+end
 end
 
 function t = localPrepareTimeVector(derived)
