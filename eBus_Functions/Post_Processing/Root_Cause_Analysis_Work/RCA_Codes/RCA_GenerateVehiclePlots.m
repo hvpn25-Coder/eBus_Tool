@@ -66,43 +66,45 @@ plotNotes(end + 1) = "Energy overview plot summarizes the electrical burden, cum
 close(fig);
 
 energyData = localComputeVehicleEnergyFlow(derived, t);
-fig = figure('Color', 'w', 'Position', config.Plot.FigurePosition);
-ax = axes('Parent', fig, 'Position', [0.03 0.05 0.94 0.90]);
+energyFigurePosition = config.Plot.FigurePosition;
+energyFigurePosition(3:4) = [1500 900];
+fig = figure('Color', 'w', 'Position', energyFigurePosition);
+ax = axes('Parent', fig, 'Position', [0.02 0.04 0.96 0.92]);
 axis(ax, [0 1 0 1]);
 axis(ax, 'off');
 hold(ax, 'on');
 
-localDrawEnergyNode(ax, [0.04 0.64 0.18 0.14], sprintf('Battery discharge\n%.2f kWh', energyData.Discharge_kWh), config.Plot.Colors.Battery);
-localDrawEnergyNode(ax, [0.31 0.64 0.18 0.14], sprintf('DC bus available\n%.2f kWh', energyData.NetBus_kWh), config.Plot.Colors.Vehicle);
-localDrawEnergyNode(ax, [0.58 0.64 0.18 0.14], sprintf('Wheel traction\n%.2f kWh', energyData.Traction_kWh), config.Plot.Colors.Motor);
-localDrawEnergyNode(ax, [0.80 0.64 0.16 0.14], sprintf('Distance\n%.2f km', derived.tripDistance_km), config.Plot.Colors.Demand);
+localDrawEnergyNode(ax, [0.05 0.50 0.19 0.13], sprintf('Battery\nDischarge\n%.2f kWh', energyData.Discharge_kWh), config.Plot.Colors.Battery, 12);
+localDrawEnergyNode(ax, [0.31 0.50 0.21 0.13], sprintf('DC Bus\nAvailable\n%.2f kWh', energyData.NetBus_kWh), config.Plot.Colors.Vehicle, 12);
+localDrawEnergyNode(ax, [0.59 0.50 0.18 0.13], sprintf('Wheel\nTraction\n%.2f kWh', energyData.Traction_kWh), config.Plot.Colors.Motor, 12);
+localDrawEnergyNode(ax, [0.82 0.50 0.13 0.13], sprintf('Distance\n%.2f km', derived.tripDistance_km), config.Plot.Colors.Demand, 12);
 
-localDrawEnergyNode(ax, [0.31 0.82 0.16 0.11], sprintf('Auxiliaries\n%.2f kWh', energyData.Aux_kWh), config.Plot.Colors.Auxiliary);
-localDrawEnergyNode(ax, [0.18 0.82 0.16 0.11], sprintf('Battery loss\n%.2f kWh', energyData.BattLoss_kWh), config.Plot.Colors.Warning);
-localDrawEnergyNode(ax, [0.52 0.82 0.16 0.11], sprintf('Motor / inverter loss\n%.2f kWh', energyData.MotorLoss_kWh), config.Plot.Colors.Warning);
-localDrawEnergyNode(ax, [0.69 0.82 0.16 0.11], sprintf('Transmission loss\n%.2f kWh', energyData.GbxLoss_kWh), config.Plot.Colors.Warning);
+localDrawEnergyNode(ax, [0.09 0.73 0.14 0.10], sprintf('Battery Loss\n%.2f kWh', energyData.BattLoss_kWh), config.Plot.Colors.Warning, 10);
+localDrawEnergyNode(ax, [0.31 0.73 0.15 0.10], sprintf('Auxiliaries\n%.2f kWh', energyData.Aux_kWh), config.Plot.Colors.Auxiliary, 10);
+localDrawEnergyNode(ax, [0.58 0.73 0.16 0.10], sprintf('Motor / Inverter Loss\n%.2f kWh', energyData.MotorLoss_kWh), config.Plot.Colors.Warning, 10);
+localDrawEnergyNode(ax, [0.79 0.73 0.16 0.10], sprintf('Transmission Loss\n%.2f kWh', energyData.GbxLoss_kWh), config.Plot.Colors.Warning, 10);
 
-localDrawEnergyNode(ax, [0.40 0.20 0.20 0.12], sprintf('Braking energy split\n%.2f kWh', energyData.BrakeSplit_kWh), config.Plot.Colors.Neutral);
-localDrawEnergyNode(ax, [0.18 0.04 0.20 0.12], sprintf('Battery regen\n%.2f kWh', energyData.Regen_kWh), config.Plot.Colors.Battery);
-localDrawEnergyNode(ax, [0.62 0.04 0.20 0.12], sprintf('Friction brake\n%.2f kWh', energyData.Friction_kWh), config.Plot.Colors.Warning);
+localDrawEnergyNode(ax, [0.39 0.25 0.22 0.11], sprintf('Braking Energy Split\n%.2f kWh', energyData.BrakeSplit_kWh), config.Plot.Colors.Neutral, 11);
+localDrawEnergyNode(ax, [0.16 0.05 0.20 0.11], sprintf('Battery Regen\n%.2f kWh', energyData.Regen_kWh), config.Plot.Colors.Battery, 11);
+localDrawEnergyNode(ax, [0.65 0.05 0.20 0.11], sprintf('Friction Brake\n%.2f kWh', energyData.Friction_kWh), config.Plot.Colors.Warning, 11);
 
-localDrawEnergyArrow(ax, [0.22 0.71], [0.31 0.71], sprintf('Discharge path\n%.2f kWh', energyData.Discharge_kWh));
-localDrawEnergyArrow(ax, [0.49 0.71], [0.58 0.71], sprintf('Delivered to wheel\n%.2f kWh', energyData.Traction_kWh));
-localDrawEnergyArrow(ax, [0.76 0.71], [0.80 0.71], 'Vehicle motion');
-localDrawEnergyArrow(ax, [0.31 0.78], [0.31 0.82], sprintf('%.2f kWh', energyData.Aux_kWh));
-localDrawEnergyArrow(ax, [0.22 0.78], [0.22 0.82], sprintf('%.2f kWh', energyData.BattLoss_kWh));
-localDrawEnergyArrow(ax, [0.58 0.78], [0.58 0.82], sprintf('%.2f kWh', energyData.MotorLoss_kWh));
-localDrawEnergyArrow(ax, [0.75 0.78], [0.75 0.82], sprintf('%.2f kWh', energyData.GbxLoss_kWh));
-localDrawEnergyArrow(ax, [0.58 0.64], [0.50 0.32], sprintf('Braking domain\n%.2f kWh', energyData.BrakeSplit_kWh));
-localDrawEnergyArrow(ax, [0.45 0.20], [0.28 0.16], sprintf('Recovered\n%.2f kWh', energyData.Regen_kWh));
-localDrawEnergyArrow(ax, [0.55 0.20], [0.72 0.16], sprintf('Dissipated\n%.2f kWh', energyData.Friction_kWh));
+localDrawEnergyArrow(ax, [0.24 0.565], [0.31 0.565], sprintf('%.2f kWh', energyData.Discharge_kWh), [0.00 0.03]);
+localDrawEnergyArrow(ax, [0.52 0.565], [0.59 0.565], sprintf('%.2f kWh', energyData.Traction_kWh), [0.00 0.03]);
+localDrawEnergyArrow(ax, [0.77 0.565], [0.82 0.565], 'Vehicle motion', [0.00 0.03]);
+localDrawEnergyArrow(ax, [0.16 0.63], [0.16 0.73], sprintf('%.2f', energyData.BattLoss_kWh), [-0.03 0.00]);
+localDrawEnergyArrow(ax, [0.38 0.63], [0.38 0.73], sprintf('%.2f', energyData.Aux_kWh), [0.03 0.00]);
+localDrawEnergyArrow(ax, [0.66 0.63], [0.66 0.73], sprintf('%.2f', energyData.MotorLoss_kWh), [0.03 0.00]);
+localDrawEnergyArrow(ax, [0.87 0.63], [0.87 0.73], sprintf('%.2f', energyData.GbxLoss_kWh), [0.03 0.00]);
+localDrawEnergyArrow(ax, [0.66 0.50], [0.50 0.36], sprintf('Braking domain\n%.2f kWh', energyData.BrakeSplit_kWh), [0.00 0.04]);
+localDrawEnergyArrow(ax, [0.46 0.25], [0.30 0.16], sprintf('Recovered\n%.2f kWh', energyData.Regen_kWh), [0.00 0.03]);
+localDrawEnergyArrow(ax, [0.54 0.25], [0.74 0.16], sprintf('Dissipated\n%.2f kWh', energyData.Friction_kWh), [0.00 0.03]);
 
-text(ax, 0.50, 0.97, 'Vehicle Energy Flow Diagram', 'HorizontalAlignment', 'center', ...
-    'FontWeight', 'bold', 'FontSize', 13);
-text(ax, 0.50, 0.93, sprintf('Trip net battery energy %.2f kWh | Battery-to-wheel efficiency %.1f%% | Regen recovery %.1f%%', ...
+text(ax, 0.50, 0.95, 'Vehicle Energy Flow Diagram', 'HorizontalAlignment', 'center', ...
+    'FontWeight', 'bold', 'FontSize', 15);
+text(ax, 0.50, 0.91, sprintf('Trip net battery energy %.2f kWh | Battery-to-wheel efficiency %.1f%% | Regen recovery %.1f%%', ...
     energyData.NetBattery_kWh, energyData.BatteryToWheelEff_pct, energyData.RegenRecovery_pct), ...
-    'HorizontalAlignment', 'center', 'FontSize', 10);
-text(ax, 0.50, 0.88, 'Battery sign convention in RCA: discharge positive, charge / regeneration negative in the raw workbook source.', ...
+    'HorizontalAlignment', 'center', 'FontSize', 11, 'FontWeight', 'bold');
+text(ax, 0.50, 0.87, 'RCA sign convention: battery discharge positive, battery charge / regeneration negative in workbook source data.', ...
     'HorizontalAlignment', 'center', 'FontSize', 9, 'Color', [0.20 0.20 0.20]);
 
 plotFiles(end + 1) = string(RCA_SaveFigure(fig, outputPaths.FiguresVehicle, 'Vehicle_Energy_Flow_Diagram', config));
@@ -265,19 +267,25 @@ else
 end
 end
 
-function localDrawEnergyNode(ax, position, labelText, faceColor)
+function localDrawEnergyNode(ax, position, labelText, faceColor, fontSize)
+if nargin < 5
+    fontSize = 10;
+end
 rectangle(ax, 'Position', position, 'Curvature', 0.04, 'FaceColor', localLightenColor(faceColor, 0.75), ...
     'EdgeColor', localLightenColor(faceColor, 0.25), 'LineWidth', 1.4);
 text(ax, position(1) + position(3) / 2, position(2) + position(4) / 2, labelText, ...
-    'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle', 'FontWeight', 'bold', 'FontSize', 10, 'Interpreter', 'none');
+    'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle', 'FontWeight', 'bold', 'FontSize', fontSize, 'Interpreter', 'none');
 end
 
-function localDrawEnergyArrow(ax, startPoint, endPoint, labelText)
+function localDrawEnergyArrow(ax, startPoint, endPoint, labelText, labelOffset)
+if nargin < 5
+    labelOffset = [0.00 0.03];
+end
 dx = endPoint(1) - startPoint(1);
 dy = endPoint(2) - startPoint(2);
 quiver(ax, startPoint(1), startPoint(2), dx, dy, 0, 'Color', [0.15 0.15 0.15], ...
     'LineWidth', 1.5, 'MaxHeadSize', 0.7);
-text(ax, startPoint(1) + 0.5 * dx, startPoint(2) + 0.5 * dy + 0.03, labelText, ...
+text(ax, startPoint(1) + 0.5 * dx + labelOffset(1), startPoint(2) + 0.5 * dy + labelOffset(2), labelText, ...
     'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle', 'FontSize', 9, ...
     'BackgroundColor', 'w', 'Margin', 0.8, 'Interpreter', 'none');
 end
