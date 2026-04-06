@@ -65,6 +65,50 @@ plotFiles(end + 1) = string(RCA_SaveFigure(fig, outputPaths.FiguresVehicle, 'Veh
 plotNotes(end + 1) = "Energy overview plot summarizes the electrical burden, cumulative energy usage, and logged loss contributors. Battery power is normalized to discharge-positive sign from workbook metadata.";
 close(fig);
 
+energyData = localComputeVehicleEnergyFlow(derived, t);
+fig = figure('Color', 'w', 'Position', config.Plot.FigurePosition);
+ax = axes('Parent', fig, 'Position', [0.03 0.05 0.94 0.90]);
+axis(ax, [0 1 0 1]);
+axis(ax, 'off');
+hold(ax, 'on');
+
+localDrawEnergyNode(ax, [0.04 0.64 0.18 0.14], sprintf('Battery discharge\n%.2f kWh', energyData.Discharge_kWh), config.Plot.Colors.Battery);
+localDrawEnergyNode(ax, [0.31 0.64 0.18 0.14], sprintf('DC bus available\n%.2f kWh', energyData.NetBus_kWh), config.Plot.Colors.Vehicle);
+localDrawEnergyNode(ax, [0.58 0.64 0.18 0.14], sprintf('Wheel traction\n%.2f kWh', energyData.Traction_kWh), config.Plot.Colors.Motor);
+localDrawEnergyNode(ax, [0.80 0.64 0.16 0.14], sprintf('Distance\n%.2f km', derived.tripDistance_km), config.Plot.Colors.Demand);
+
+localDrawEnergyNode(ax, [0.31 0.82 0.16 0.11], sprintf('Auxiliaries\n%.2f kWh', energyData.Aux_kWh), config.Plot.Colors.Auxiliary);
+localDrawEnergyNode(ax, [0.18 0.82 0.16 0.11], sprintf('Battery loss\n%.2f kWh', energyData.BattLoss_kWh), config.Plot.Colors.Warning);
+localDrawEnergyNode(ax, [0.52 0.82 0.16 0.11], sprintf('Motor / inverter loss\n%.2f kWh', energyData.MotorLoss_kWh), config.Plot.Colors.Warning);
+localDrawEnergyNode(ax, [0.69 0.82 0.16 0.11], sprintf('Transmission loss\n%.2f kWh', energyData.GbxLoss_kWh), config.Plot.Colors.Warning);
+
+localDrawEnergyNode(ax, [0.40 0.20 0.20 0.12], sprintf('Braking energy split\n%.2f kWh', energyData.BrakeSplit_kWh), config.Plot.Colors.Neutral);
+localDrawEnergyNode(ax, [0.18 0.04 0.20 0.12], sprintf('Battery regen\n%.2f kWh', energyData.Regen_kWh), config.Plot.Colors.Battery);
+localDrawEnergyNode(ax, [0.62 0.04 0.20 0.12], sprintf('Friction brake\n%.2f kWh', energyData.Friction_kWh), config.Plot.Colors.Warning);
+
+localDrawEnergyArrow(ax, [0.22 0.71], [0.31 0.71], sprintf('Discharge path\n%.2f kWh', energyData.Discharge_kWh));
+localDrawEnergyArrow(ax, [0.49 0.71], [0.58 0.71], sprintf('Delivered to wheel\n%.2f kWh', energyData.Traction_kWh));
+localDrawEnergyArrow(ax, [0.76 0.71], [0.80 0.71], 'Vehicle motion');
+localDrawEnergyArrow(ax, [0.31 0.78], [0.31 0.82], sprintf('%.2f kWh', energyData.Aux_kWh));
+localDrawEnergyArrow(ax, [0.22 0.78], [0.22 0.82], sprintf('%.2f kWh', energyData.BattLoss_kWh));
+localDrawEnergyArrow(ax, [0.58 0.78], [0.58 0.82], sprintf('%.2f kWh', energyData.MotorLoss_kWh));
+localDrawEnergyArrow(ax, [0.75 0.78], [0.75 0.82], sprintf('%.2f kWh', energyData.GbxLoss_kWh));
+localDrawEnergyArrow(ax, [0.58 0.64], [0.50 0.32], sprintf('Braking domain\n%.2f kWh', energyData.BrakeSplit_kWh));
+localDrawEnergyArrow(ax, [0.45 0.20], [0.28 0.16], sprintf('Recovered\n%.2f kWh', energyData.Regen_kWh));
+localDrawEnergyArrow(ax, [0.55 0.20], [0.72 0.16], sprintf('Dissipated\n%.2f kWh', energyData.Friction_kWh));
+
+text(ax, 0.50, 0.97, 'Vehicle Energy Flow Diagram', 'HorizontalAlignment', 'center', ...
+    'FontWeight', 'bold', 'FontSize', 13);
+text(ax, 0.50, 0.93, sprintf('Trip net battery energy %.2f kWh | Battery-to-wheel efficiency %.1f%% | Regen recovery %.1f%%', ...
+    energyData.NetBattery_kWh, energyData.BatteryToWheelEff_pct, energyData.RegenRecovery_pct), ...
+    'HorizontalAlignment', 'center', 'FontSize', 10);
+text(ax, 0.50, 0.88, 'Battery sign convention in RCA: discharge positive, charge / regeneration negative in the raw workbook source.', ...
+    'HorizontalAlignment', 'center', 'FontSize', 9, 'Color', [0.20 0.20 0.20]);
+
+plotFiles(end + 1) = string(RCA_SaveFigure(fig, outputPaths.FiguresVehicle, 'Vehicle_Energy_Flow_Diagram', config));
+plotNotes(end + 1) = "Energy flow diagram summarizes how battery discharge energy is distributed across auxiliaries, internal losses, wheel traction, and braking recovery or dissipation.";
+close(fig);
+
 fig = figure('Color', 'w', 'Position', config.Plot.FigurePosition);
 subplot(2, 2, 1);
 stairs(t, derived.gearNumber, 'Color', config.Plot.Colors.Gear, 'LineWidth', config.Plot.LineWidth);
@@ -194,6 +238,54 @@ for iDash = 1:numDashboards
 end
 
 plotResults = struct('Files', plotFiles, 'Notes', plotNotes);
+end
+
+function energyData = localComputeVehicleEnergyFlow(derived, t)
+energyData = struct();
+energyData.Discharge_kWh = RCA_TrapzFinite(t, max(derived.batteryPower_kW, 0)) / 3600;
+energyData.Regen_kWh = RCA_TrapzFinite(t, max(-derived.batteryPower_kW, 0)) / 3600;
+energyData.NetBattery_kWh = energyData.Discharge_kWh - energyData.Regen_kWh;
+energyData.Aux_kWh = RCA_TrapzFinite(t, max(derived.auxiliaryPower_kW, 0)) / 3600;
+energyData.BattLoss_kWh = RCA_TrapzFinite(t, max(derived.batteryLossPower_kW, 0)) / 3600;
+energyData.MotorLoss_kWh = RCA_TrapzFinite(t, max(derived.motorLossPower_kW, 0)) / 3600;
+energyData.GbxLoss_kWh = RCA_TrapzFinite(t, max(derived.gearboxLossPower_kW, 0)) / 3600;
+energyData.Traction_kWh = RCA_TrapzFinite(t, max(derived.tractionPower_kW, 0)) / 3600;
+energyData.Friction_kWh = RCA_TrapzFinite(t, max(derived.frictionBrakePower_kW, 0)) / 3600;
+energyData.BrakeSplit_kWh = energyData.Regen_kWh + energyData.Friction_kWh;
+energyData.NetBus_kWh = max(energyData.Discharge_kWh - energyData.Aux_kWh - energyData.BattLoss_kWh, 0);
+if energyData.Discharge_kWh > 0
+    energyData.BatteryToWheelEff_pct = 100 * energyData.Traction_kWh / energyData.Discharge_kWh;
+else
+    energyData.BatteryToWheelEff_pct = NaN;
+end
+if energyData.BrakeSplit_kWh > 0
+    energyData.RegenRecovery_pct = 100 * energyData.Regen_kWh / energyData.BrakeSplit_kWh;
+else
+    energyData.RegenRecovery_pct = NaN;
+end
+end
+
+function localDrawEnergyNode(ax, position, labelText, faceColor)
+rectangle(ax, 'Position', position, 'Curvature', 0.04, 'FaceColor', localLightenColor(faceColor, 0.75), ...
+    'EdgeColor', localLightenColor(faceColor, 0.25), 'LineWidth', 1.4);
+text(ax, position(1) + position(3) / 2, position(2) + position(4) / 2, labelText, ...
+    'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle', 'FontWeight', 'bold', 'FontSize', 10, 'Interpreter', 'none');
+end
+
+function localDrawEnergyArrow(ax, startPoint, endPoint, labelText)
+dx = endPoint(1) - startPoint(1);
+dy = endPoint(2) - startPoint(2);
+quiver(ax, startPoint(1), startPoint(2), dx, dy, 0, 'Color', [0.15 0.15 0.15], ...
+    'LineWidth', 1.5, 'MaxHeadSize', 0.7);
+text(ax, startPoint(1) + 0.5 * dx, startPoint(2) + 0.5 * dy + 0.03, labelText, ...
+    'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle', 'FontSize', 9, ...
+    'BackgroundColor', 'w', 'Margin', 0.8, 'Interpreter', 'none');
+end
+
+function outColor = localLightenColor(inColor, factor)
+inColor = double(inColor(:)');
+outColor = inColor + (1 - inColor) .* factor;
+outColor = min(max(outColor, 0), 1);
 end
 
 function [causeNames, contributionSums] = localAggregateCauseContributions(rootCauseRanking)
