@@ -1444,10 +1444,12 @@ else
     selection.TypeParagraph;
 end
 
-localAddHeading(selection, '18.6 MATLAB Script References', 2);
+localWriteSegmentPagesSection(doc, selection, reportData, state);
+
+localAddHeading(selection, '18.7 MATLAB Script References', 2);
 localAddWordTable(doc, selection, 'MATLAB script reference map', {'Script / File', 'Role in workflow'}, localBuildScriptReferenceRows());
 
-localAddHeading(selection, '18.7 Assumptions and Limitations', 2);
+localAddHeading(selection, '18.8 Assumptions and Limitations', 2);
 if state.UseActualData && height(reportData.ExtractionLog) > 0
     selection.TypeText(sprintf('Review the extraction log and signal presence tables for detailed limitations. The current run recorded %d extraction-log entries that may include fallback matches or workbook-evaluation issues.', ...
         height(reportData.ExtractionLog)));
@@ -1456,11 +1458,11 @@ else
 end
 selection.TypeParagraph;
 
-localAddHeading(selection, '18.8 Mapping of Report Sections to Source Files', 2);
+localAddHeading(selection, '18.9 Mapping of Report Sections to Source Files', 2);
 localAddWordTable(doc, selection, 'Mapping of report sections to source files', ...
     reportData.SectionMap.Properties.VariableNames, localTableToCellRows(reportData.SectionMap));
 
-localAddHeading(selection, '18.9 Style Guide for Future Reuse', 2);
+localAddHeading(selection, '18.10 Style Guide for Future Reuse', 2);
 localWriteStringList(selection, '', [ ...
     "Keep the report single-column and avoid decorative layout elements."; ...
     "Ensure every major claim cites a KPI, plot, table, or explicit reasoning path."; ...
@@ -1468,6 +1470,210 @@ localWriteStringList(selection, '', [ ...
     "Use numbered headings consistently and keep figure and table captions descriptive."; ...
     "Preserve appendix traceability so future reports remain reproducible and reviewable."; ...
     "When values are missing, retain the section and use explicit placeholders rather than deleting structure."]);
+end
+
+function localWriteSegmentPagesSection(doc, selection, reportData, state)
+localAddHeading(selection, '18.6 Segment-by-Segment RCA Pages', 2);
+
+if ~state.UseActualData || height(reportData.SegmentSummary) == 0
+    selection.TypeText('[Insert one RCA page per segment with summary, bad-segment status, supporting KPI, and segment root-cause ranking.]');
+    selection.TypeParagraph;
+    return;
+end
+
+selection.TypeText(sprintf(['This appendix contains one RCA page for each segment identified by the vehicle segmentation logic. ', ...
+    'Each page captures the segment summary, whether the segment is classified as bad, the most likely root causes, and any matching segment-level figure evidence. ', ...
+    'Total segments included: %d.'], height(reportData.SegmentSummary)));
+selection.TypeParagraph;
+
+for iSeg = 1:height(reportData.SegmentSummary)
+    segmentRow = reportData.SegmentSummary(iSeg, :);
+    segmentId = localRowFieldNumber(segmentRow, {'SegmentID'}, iSeg);
+    if iSeg == 1
+        selection.TypeParagraph;
+    else
+        localInsertPageBreak(selection);
+    end
+
+    localAddHeading(selection, localSegmentPageHeading(iSeg, segmentId), 3);
+
+    badRow = localFindSegmentBadRow(reportData.BadSegmentTable, segmentId);
+    causeTable = localBuildSegmentCauseTable(reportData.RootCauseRanking, segmentId);
+
+    localWriteLabelParagraph(selection, 'Segment status', localBuildSegmentStatusText(segmentRow, badRow));
+    localWriteLabelParagraph(selection, 'Segment overview', localBuildSegmentOverviewText(segmentRow));
+
+    segmentSummaryTable = localBuildSegmentSummaryDisplayTable(segmentRow, badRow, causeTable);
+    localAddWordTable(doc, selection, sprintf('Segment %d summary', segmentId), ...
+        segmentSummaryTable.Properties.VariableNames, localTableToCellRows(segmentSummaryTable));
+
+    if ~isempty(badRow)
+        localWriteLabelParagraph(selection, 'Bad segment summary', localBuildBadSegmentNarrative(badRow));
+    else
+        localWriteLabelParagraph(selection, 'Bad segment summary', ...
+            'This segment is not explicitly flagged in the current bad-segment table. It is retained here for completeness and comparison against poor segments.');
+    end
+
+    if height(causeTable) > 0
+        localAddWordTable(doc, selection, sprintf('Segment %d root cause ranking', segmentId), ...
+            causeTable.Properties.VariableNames, localTableToCellRows(causeTable));
+    else
+        selection.TypeText(char(localTranslateText('[Insert segment-specific root-cause ranking table or note that no ranked cause exceeded the RCA threshold.]')));
+        selection.TypeParagraph;
+    end
+
+    figurePath = localFindSegmentFigure(reportData, segmentId);
+    if strlength(string(figurePath)) > 0
+        localAddFigure(selection, state, figurePath, sprintf('Segment %d detailed RCA figure', segmentId));
+    end
+end
+end
+
+function badRow = localFindSegmentBadRow(badSegmentTable, segmentId)
+badRow = [];
+if isempty(badSegmentTable) || height(badSegmentTable) == 0 || ~ismember('SegmentID', badSegmentTable.Properties.VariableNames)
+    return;
+end
+idx = find(badSegmentTable.SegmentID == segmentId, 1, 'first');
+if ~isempty(idx)
+    badRow = badSegmentTable(idx, :);
+end
+end
+
+function causeTable = localBuildSegmentCauseTable(rootCauseTable, segmentId)
+causeTable = table();
+if isempty(rootCauseTable) || height(rootCauseTable) == 0 || ~ismember('SegmentID', rootCauseTable.Properties.VariableNames)
+    return;
+end
+mask = rootCauseTable.SegmentID == segmentId;
+if ~any(mask)
+    return;
+end
+candidateColumns = {'CauseRank', 'CauseName', 'Contribution_pct', 'Confidence', 'EvidenceSignals', 'Narrative'};
+availableColumns = candidateColumns(ismember(candidateColumns, rootCauseTable.Properties.VariableNames));
+causeTable = rootCauseTable(mask, availableColumns);
+if ismember('Contribution_pct', causeTable.Properties.VariableNames)
+    try
+        causeTable = sortrows(causeTable, 'Contribution_pct', 'descend');
+    catch
+    end
+end
+end
+
+function summaryTable = localBuildSegmentSummaryDisplayTable(segmentRow, badRow, causeTable)
+rows = {
+    'Segment ID', localRowFieldText(segmentRow, {'SegmentID'}, '');
+    'Time window [s]', sprintf('%.1f to %.1f', localRowFieldNumber(segmentRow, {'StartTime_s'}, NaN), localRowFieldNumber(segmentRow, {'EndTime_s'}, NaN));
+    'Duration [s]', localRowFieldText(segmentRow, {'Duration_s'}, '');
+    'Distance [km]', localRowFieldText(segmentRow, {'Distance_km'}, '');
+    'Motion class', localRowFieldText(segmentRow, {'MotionClass'}, '');
+    'Grade class', localRowFieldText(segmentRow, {'GradeClass'}, '');
+    'Auxiliary class', localRowFieldText(segmentRow, {'AuxClass'}, '');
+    'Dominant gear', localRowFieldText(segmentRow, {'DominantGear'}, '');
+    'Primary issue tag', localRowFieldText(segmentRow, {'PrimaryIssueTag'}, '');
+    'Bad segment', localLogicalText(~isempty(badRow));
+    'Tracking MAE [km/h]', localRowFieldText(segmentRow, {'TrackingMAE_kmh'}, '');
+    'Energy intensity [Wh/km]', localRowFieldText(segmentRow, {'Wh_per_km'}, '');
+    'Loss share [%]', localRowFieldText(segmentRow, {'LossShare_pct'}, '');
+    'Regen recovery [%]', localRowFieldText(segmentRow, {'RegenRecovery_pct'}, '')
+    };
+
+if ~isempty(badRow)
+    rows(end + 1, :) = {'Bad-segment issue type', localRowFieldText(badRow, {'IssueType'}, '')}; %#ok<AGROW>
+    rows(end + 1, :) = {'Primary cause', localRowFieldText(badRow, {'PrimaryCause'}, '')}; %#ok<AGROW>
+    rows(end + 1, :) = {'Primary contribution [%]', localRowFieldText(badRow, {'PrimaryContribution_pct'}, '')}; %#ok<AGROW>
+    rows(end + 1, :) = {'Confidence', localRowFieldText(badRow, {'Confidence'}, '')}; %#ok<AGROW>
+end
+
+if height(causeTable) > 0
+    rows(end + 1, :) = {'Top ranked cause', localRowFieldText(causeTable(1, :), {'CauseName'}, '')}; %#ok<AGROW>
+end
+
+summaryTable = cell2table(rows, 'VariableNames', {'Field', 'Value'});
+end
+
+function textValue = localBuildSegmentStatusText(segmentRow, badRow)
+segmentId = localRowFieldNumber(segmentRow, {'SegmentID'}, NaN);
+motionClass = localRowFieldText(segmentRow, {'MotionClass'}, 'Unknown');
+gradeClass = localRowFieldText(segmentRow, {'GradeClass'}, 'Unknown');
+auxClass = localRowFieldText(segmentRow, {'AuxClass'}, 'Unknown');
+gearText = localRowFieldText(segmentRow, {'DominantGear'}, 'Unknown');
+if ~isempty(badRow)
+    textValue = sprintf(['Segment %d is classified as a bad segment. ', ...
+        'It is primarily characterized as %s / %s / %s in dominant gear %s, and the bad-segment table identifies %s as the leading issue.'], ...
+        segmentId, motionClass, gradeClass, auxClass, gearText, localRowFieldText(badRow, {'IssueType'}, 'a flagged issue'));
+else
+    textValue = sprintf(['Segment %d is not explicitly classified as a bad segment. ', ...
+        'It is retained for completeness with dominant state %s / %s / %s in dominant gear %s.'], ...
+        segmentId, motionClass, gradeClass, auxClass, gearText);
+end
+end
+
+function textValue = localBuildSegmentOverviewText(segmentRow)
+textValue = sprintf(['This segment spans %.1f s to %.1f s (duration %.1f s, distance %.3f km). ', ...
+    'The dominant operating mode is %s on %s road with %s, and the dominant gear is %s. ', ...
+    'Mean speed is %s km/h, mean slope is %s %%, energy intensity is %s Wh/km, and the primary issue tag is %s.'], ...
+    localRowFieldNumber(segmentRow, {'StartTime_s'}, NaN), ...
+    localRowFieldNumber(segmentRow, {'EndTime_s'}, NaN), ...
+    localRowFieldNumber(segmentRow, {'Duration_s'}, NaN), ...
+    localRowFieldNumber(segmentRow, {'Distance_km'}, NaN), ...
+    localRowFieldText(segmentRow, {'MotionClass'}, 'Unknown'), ...
+    localRowFieldText(segmentRow, {'GradeClass'}, 'Unknown'), ...
+    localRowFieldText(segmentRow, {'AuxClass'}, 'Unknown aux state'), ...
+    localRowFieldText(segmentRow, {'DominantGear'}, 'Unknown'), ...
+    localRowFieldText(segmentRow, {'MeanSpeed_kmh'}, 'NaN'), ...
+    localRowFieldText(segmentRow, {'MeanSlope_pct'}, 'NaN'), ...
+    localRowFieldText(segmentRow, {'Wh_per_km'}, 'NaN'), ...
+    localRowFieldText(segmentRow, {'PrimaryIssueTag'}, 'Not assigned'));
+end
+
+function textValue = localBuildBadSegmentNarrative(badRow)
+textValue = sprintf(['Issue type: %s. Primary cause: %s. Primary contribution: %s %%. Confidence: %s. ', ...
+    'Evidence signals: %s. Narrative: %s'], ...
+    localRowFieldText(badRow, {'IssueType'}, 'Unknown'), ...
+    localRowFieldText(badRow, {'PrimaryCause'}, 'Unknown'), ...
+    localRowFieldText(badRow, {'PrimaryContribution_pct'}, 'NaN'), ...
+    localRowFieldText(badRow, {'Confidence'}, 'Unknown'), ...
+    localRowFieldText(badRow, {'EvidenceSignals'}, 'Not recorded'), ...
+    localRowFieldText(badRow, {'Narrative'}, 'No narrative recorded.'));
+end
+
+function textValue = localLogicalText(isTrue)
+if isTrue
+    textValue = char(localTranslateText('Yes'));
+else
+    textValue = char(localTranslateText('No'));
+end
+end
+
+function headingText = localSegmentPageHeading(pageIndex, segmentId)
+if localCurrentReportLanguage() == "DE"
+    headingText = sprintf('18.6.%d Segment %d RCA-Seite', pageIndex, segmentId);
+else
+    headingText = sprintf('18.6.%d Segment %d RCA Page', pageIndex, segmentId);
+end
+end
+
+function filePath = localFindSegmentFigure(reportData, segmentId)
+filePath = '';
+vehicleFiles = localExistingFiles(reportData.VehicleFigureFiles);
+if isempty(vehicleFiles)
+    return;
+end
+
+tokens = [ ...
+    "WorstSegment_" + sprintf('%02d', segmentId), ...
+    "Worst_Segment_" + sprintf('%02d', segmentId), ...
+    "Segment_" + sprintf('%02d', segmentId), ...
+    "segment" + string(segmentId)];
+
+for iToken = 1:numel(tokens)
+    idx = find(contains(lower(vehicleFiles), lower(tokens(iToken))), 1, 'first');
+    if ~isempty(idx)
+        filePath = char(vehicleFiles(idx));
+        return;
+    end
+end
 end
 
 function localWriteObservationSection(selection, state, headingText, observationText, evidenceText, interpretationText, rootCauseText, severityText, nextStepText)
@@ -2246,8 +2452,8 @@ keys = { ...
     '16.5 Additional Simulations / Tests Required', '16.6 Measurement / Validation Recommendations', ...
     '17. Conclusion', '18. Appendices', '18.1 Detailed Signal List', '18.2 Full KPI Definitions', ...
     '18.3 Data Cleaning Rules', '18.4 Scenario / Run Descriptions', '18.5 Extra Plots', ...
-    '18.6 MATLAB Script References', '18.7 Assumptions and Limitations', ...
-    '18.8 Mapping of Report Sections to Source Files', '18.9 Style Guide for Future Reuse', ...
+    '18.6 Segment-by-Segment RCA Pages', '18.7 MATLAB Script References', '18.8 Assumptions and Limitations', ...
+    '18.9 Mapping of Report Sections to Source Files', '18.10 Style Guide for Future Reuse', ...
     'Why this analysis was performed', 'What data was used', 'Top 5 critical findings', ...
     'Top 5 likely root causes', 'Top recommended actions', 'Overall vehicle risk / opportunity summary', ...
     'Observation', 'Evidence', 'Engineering interpretation', 'Root cause hypothesis', ...
@@ -2255,7 +2461,8 @@ keys = { ...
     'Representative bad cases', 'Best cases for comparison', 'What differentiates them', ...
     'Root cause reasoning', 'Role in vehicle behavior', 'Signals used', 'Key KPIs', ...
     'Observed issue patterns', 'Root cause candidates', 'Recommended modeling / logic / calibration improvements', ...
-    'Limitations', 'Recommended next actions', 'Document purpose', 'Scope', '- [Insert item]'};
+    'Limitations', 'Recommended next actions', 'Document purpose', 'Scope', 'Yes', 'No', ...
+    'Segment status', 'Segment overview', 'Bad segment summary', '- [Insert item]'};
 
 values = { ...
     'Abbildung', 'Tabelle', ...
@@ -2284,8 +2491,8 @@ values = { ...
     '16.5 Zusätzliche Simulationen / Tests', '16.6 Mess- / Validierungsempfehlungen', ...
     '17. Fazit', '18. Anhänge', '18.1 Detaillierte Signalliste', '18.2 Vollständige KPI-Definitionen', ...
     '18.3 Regeln zur Datenbereinigung', '18.4 Szenario- / Laufbeschreibungen', '18.5 Zusätzliche Plots', ...
-    '18.6 MATLAB-Skriptverweise', '18.7 Annahmen und Grenzen', ...
-    '18.8 Zuordnung der Berichtsabschnitte zu Quelldateien', '18.9 Stilrichtlinie zur Wiederverwendung', ...
+    '18.6 RCA-Seiten je Segment', '18.7 MATLAB-Skriptverweise', '18.8 Annahmen und Grenzen', ...
+    '18.9 Zuordnung der Berichtsabschnitte zu Quelldateien', '18.10 Stilrichtlinie zur Wiederverwendung', ...
     'Warum diese Analyse durchgeführt wurde', 'Welche Daten verwendet wurden', 'Top-5-Schlüsselbefunde', ...
     'Top-5-wahrscheinliche Ursachen', 'Top-Empfehlungen', 'Zusammenfassung von Gesamtrisiko / Chancenbild', ...
     'Beobachtung', 'Nachweis', 'Technische Interpretation', 'Ursachenhypothese', ...
@@ -2293,7 +2500,8 @@ values = { ...
     'Repräsentative schlechte Fälle', 'Beste Vergleichsfälle', 'Was sie unterscheidet', ...
     'Begründung der Ursachenanalyse', 'Rolle im Fahrzeugverhalten', 'Verwendete Signale', 'Wichtige KPIs', ...
     'Beobachtete Musterausprägungen', 'Mögliche Ursachen', 'Empfohlene Modellierungs- / Logik- / Kalibrierungsverbesserungen', ...
-    'Einschränkungen', 'Empfohlene nächste Schritte', 'Dokumentzweck', 'Geltungsbereich', '- [Eintrag einfügen]'};
+    'Einschränkungen', 'Empfohlene nächste Schritte', 'Dokumentzweck', 'Geltungsbereich', 'Ja', 'Nein', ...
+    'Segmentstatus', 'Segmentübersicht', 'Zusammenfassung des schlechten Segments', '- [Eintrag einfügen]'};
 
 translationMap = containers.Map(keys, values);
 map = translationMap;
