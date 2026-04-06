@@ -404,18 +404,25 @@ legend({'Accelerator pedal', 'Brake pedal'}, 'Location', 'best');
 grid on;
 
 subplot(3, 1, 2);
-plot(t, totalDemand, 'Color', config.Plot.Colors.Motor, 'LineWidth', config.Plot.LineWidth); hold on;
-plot(t, totalActual, 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth);
+hLegend = gobjects(0, 1);
+legendText = strings(0, 1);
+hLegend(end + 1) = plot(t, totalDemand, 'Color', config.Plot.Colors.Motor, 'LineWidth', config.Plot.LineWidth); hold on;
+legendText(end + 1) = "Demand torque";
+hLegend(end + 1) = plot(t, totalActual, 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth);
+legendText(end + 1) = "Actual torque";
 if any(isfinite(posLimit))
-    plot(t, posLimit, '--', 'Color', config.Plot.Colors.Warning, 'LineWidth', config.Plot.LineWidth);
+    hLegend(end + 1) = plot(t, posLimit, '--', 'Color', config.Plot.Colors.Warning, 'LineWidth', config.Plot.LineWidth);
+    legendText(end + 1) = "Max available torque";
 end
 if any(isfinite(negLimit))
-    plot(t, negLimit, '--', 'Color', config.Plot.Colors.Auxiliary, 'LineWidth', config.Plot.LineWidth);
+    hLegend(end + 1) = plot(t, negLimit, '--', 'Color', config.Plot.Colors.Auxiliary, 'LineWidth', config.Plot.LineWidth);
+    legendText(end + 1) = "Min available torque";
 end
-plot(t, zeros(size(t)), '-', 'Color', config.Plot.Colors.Neutral, 'LineWidth', 0.8);
+hLegend(end + 1) = plot(t, zeros(size(t)), '-', 'Color', config.Plot.Colors.Neutral, 'LineWidth', 0.8);
+legendText(end + 1) = "Zero line";
 title('Total Torque Demand, Delivery, and Available Envelope');
 ylabel('Torque (Nm)');
-legend({'Demand torque', 'Actual torque', 'Max available torque', 'Min available torque', 'Zero line'}, 'Location', 'best');
+legend(hLegend, cellstr(legendText), 'Location', 'best');
 grid on;
 
 subplot(3, 1, 3);
@@ -425,14 +432,24 @@ validDrive = isfinite(posLimit) & posLimit > 0 & totalDemand > 0;
 validRegen = isfinite(negLimit) & abs(negLimit) > 0 & totalDemand < 0;
 driveUtil(validDrive) = 100 * totalDemand(validDrive) ./ posLimit(validDrive);
 regenUtil(validRegen) = 100 * abs(totalDemand(validRegen)) ./ abs(negLimit(validRegen));
-plot(t, driveUtil, 'Color', config.Plot.Colors.Demand, 'LineWidth', config.Plot.LineWidth); hold on;
-plot(t, regenUtil, 'Color', config.Plot.Colors.Battery, 'LineWidth', config.Plot.LineWidth);
-plot(t(driveNearLimitMask), driveUtil(driveNearLimitMask), 'o', 'Color', config.Plot.Colors.Warning, 'MarkerSize', 4);
-plot(t(regenNearLimitMask), regenUtil(regenNearLimitMask), 'o', 'Color', config.Plot.Colors.Auxiliary, 'MarkerSize', 4);
+hLegend = gobjects(0, 1);
+legendText = strings(0, 1);
+hLegend(end + 1) = plot(t, driveUtil, 'Color', config.Plot.Colors.Demand, 'LineWidth', config.Plot.LineWidth); hold on;
+legendText(end + 1) = "Drive limit usage";
+hLegend(end + 1) = plot(t, regenUtil, 'Color', config.Plot.Colors.Battery, 'LineWidth', config.Plot.LineWidth);
+legendText(end + 1) = "Regen limit usage";
+if any(driveNearLimitMask)
+    hLegend(end + 1) = plot(t(driveNearLimitMask), driveUtil(driveNearLimitMask), 'o', 'Color', config.Plot.Colors.Warning, 'MarkerSize', 4);
+    legendText(end + 1) = "Near positive limit";
+end
+if any(regenNearLimitMask)
+    hLegend(end + 1) = plot(t(regenNearLimitMask), regenUtil(regenNearLimitMask), 'o', 'Color', config.Plot.Colors.Auxiliary, 'MarkerSize', 4);
+    legendText(end + 1) = "Near regen limit";
+end
 title('Available Torque Utilization');
 xlabel('Time (s)');
 ylabel('Limit usage (%)');
-legend({'Drive limit usage', 'Regen limit usage', 'Near positive limit', 'Near regen limit'}, 'Location', 'best');
+legend(hLegend, cellstr(legendText), 'Location', 'best');
 grid on;
 
 plotFile = string(RCA_SaveFigure(fig, outputFolder, 'PowerTrainController_CommandOverview', config));
@@ -536,11 +553,17 @@ fig = figure('Color', 'w', 'Position', config.Plot.FigurePosition);
 
 subplot(4, 1, 1);
 if any(isfinite(gearNum))
-    stairs(t, gearNum, 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth); hold on;
-    plot(t(shiftMask), gearNum(shiftMask), 'o', 'Color', config.Plot.Colors.Warning, 'MarkerSize', 4);
+    hLegend = gobjects(0, 1);
+    legendText = strings(0, 1);
+    hLegend(end + 1) = stairs(t, gearNum, 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth); hold on;
+    legendText(end + 1) = "Actual gear";
+    if any(shiftMask)
+        hLegend(end + 1) = plot(t(shiftMask), gearNum(shiftMask), 'o', 'Color', config.Plot.Colors.Warning, 'MarkerSize', 4);
+        legendText(end + 1) = "Shift activity";
+    end
     ylabel('Gear (-)');
     title('Actual Gear Number and Shift Activity');
-    legend({'Actual gear', 'Shift activity'}, 'Location', 'best');
+    legend(hLegend, cellstr(legendText), 'Location', 'best');
 else
     plot(t, NaN(size(t)));
     title('Actual Gear Number and Shift Activity');
@@ -557,18 +580,27 @@ ylabel('Ratio (-)');
 grid on;
 
 subplot(4, 1, 3);
-plot(t, totalDemand, 'Color', config.Plot.Colors.Demand, 'LineWidth', config.Plot.LineWidth); hold on;
+hLegend = gobjects(0, 1);
+legendText = strings(0, 1);
+hLegend(end + 1) = plot(t, totalDemand, 'Color', config.Plot.Colors.Demand, 'LineWidth', config.Plot.LineWidth); hold on;
+legendText(end + 1) = "Demand torque";
 if any(isfinite(posLimit))
-    plot(t, posLimit, '--', 'Color', config.Plot.Colors.Warning, 'LineWidth', config.Plot.LineWidth);
+    hLegend(end + 1) = plot(t, posLimit, '--', 'Color', config.Plot.Colors.Warning, 'LineWidth', config.Plot.LineWidth);
+    legendText(end + 1) = "Max available torque";
 end
 if any(isfinite(negLimit))
-    plot(t, negLimit, '--', 'Color', config.Plot.Colors.Auxiliary, 'LineWidth', config.Plot.LineWidth);
+    hLegend(end + 1) = plot(t, negLimit, '--', 'Color', config.Plot.Colors.Auxiliary, 'LineWidth', config.Plot.LineWidth);
+    legendText(end + 1) = "Min available torque";
 end
-plot(t(shiftMask), totalDemand(shiftMask), 'o', 'Color', config.Plot.Colors.Vehicle, 'MarkerSize', 4);
-plot(t, zeros(size(t)), '-', 'Color', config.Plot.Colors.Neutral, 'LineWidth', 0.8);
+if any(shiftMask)
+    hLegend(end + 1) = plot(t(shiftMask), totalDemand(shiftMask), 'o', 'Color', config.Plot.Colors.Vehicle, 'MarkerSize', 4);
+    legendText(end + 1) = "Shift activity";
+end
+hLegend(end + 1) = plot(t, zeros(size(t)), '-', 'Color', config.Plot.Colors.Neutral, 'LineWidth', 0.8);
+legendText(end + 1) = "Zero line";
 title('Torque Demand with Shift Context');
 ylabel('Torque (Nm)');
-legend({'Demand torque', 'Max available torque', 'Min available torque', 'Shift activity', 'Zero line'}, 'Location', 'best');
+legend(hLegend, cellstr(legendText), 'Location', 'best');
 grid on;
 
 subplot(4, 1, 4);
