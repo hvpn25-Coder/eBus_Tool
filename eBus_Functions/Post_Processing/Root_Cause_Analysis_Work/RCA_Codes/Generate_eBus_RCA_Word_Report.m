@@ -1506,7 +1506,7 @@ for iSeg = 1:height(reportData.SegmentSummary)
 
     segmentSummaryTable = localBuildSegmentSummaryDisplayTable(segmentRow, badRow, causeTable);
     localAddWordTable(doc, selection, sprintf('Segment %d summary', segmentId), ...
-        segmentSummaryTable.Properties.VariableNames, localTableToCellRows(segmentSummaryTable));
+        segmentSummaryTable.Properties.VariableNames, localTableToCellRows(segmentSummaryTable), localSegmentTableStyle());
 
     if ~isempty(badRow)
         localWriteLabelParagraph(selection, 'Bad segment summary', localBuildBadSegmentNarrative(badRow));
@@ -1517,7 +1517,7 @@ for iSeg = 1:height(reportData.SegmentSummary)
 
     if height(causeTable) > 0
         localAddWordTable(doc, selection, sprintf('Segment %d root cause ranking', segmentId), ...
-            causeTable.Properties.VariableNames, localTableToCellRows(causeTable));
+            causeTable.Properties.VariableNames, localTableToCellRows(causeTable), localSegmentTableStyle());
     else
         selection.TypeText(char(localTranslateText('[Insert segment-specific root-cause ranking table or note that no ranked cause exceeded the RCA threshold.]')));
         selection.TypeParagraph;
@@ -1763,11 +1763,15 @@ rows = { ...
     'Generate_eBus_RCA_Word_Report.m', 'Word report generation and document templating'};
 end
 
-function localAddWordTable(doc, selection, captionText, headers, rows)
+function localAddWordTable(doc, selection, captionText, headers, rows, styleOptions)
 if nargin < 5 || isempty(rows)
     rows = {'[Insert]', '[Insert]'};
     headers = {'Field', 'Value'};
 end
+if nargin < 6 || isempty(styleOptions)
+    styleOptions = struct();
+end
+styleOptions = localNormalizeWordTableStyle(styleOptions);
 
 headers = cellstr(string(headers(:)'));
 rows = localEnsureCellMatrix(rows);
@@ -1788,6 +1792,7 @@ wordTable.Rows.Alignment = 1;
 for iCol = 1:colCount
     wordTable.Cell(1, iCol).Range.Text = headers{iCol};
     wordTable.Cell(1, iCol).Range.Bold = true;
+    localApplyHeaderCellStyle(wordTable.Cell(1, iCol), styleOptions);
 end
 
 for iRow = 1:size(rows, 1)
@@ -1807,6 +1812,47 @@ catch
 end
 selection.TypeParagraph;
 selection.TypeParagraph;
+end
+
+function styleOptions = localNormalizeWordTableStyle(styleOptions)
+defaults = struct();
+defaults.HeaderFillColor = [];
+defaults.HeaderFontColor = [];
+for iField = string(fieldnames(defaults))'
+    fieldName = char(iField);
+    if ~isfield(styleOptions, fieldName) || isempty(styleOptions.(fieldName))
+        styleOptions.(fieldName) = defaults.(fieldName);
+    end
+end
+end
+
+function styleOptions = localSegmentTableStyle()
+styleOptions = struct();
+styleOptions.HeaderFillColor = localWordRgb(31, 78, 121);
+styleOptions.HeaderFontColor = localWordRgb(255, 255, 255);
+end
+
+function localApplyHeaderCellStyle(wordCell, styleOptions)
+if ~isempty(styleOptions.HeaderFillColor)
+    try
+        wordCell.Shading.BackgroundPatternColor = styleOptions.HeaderFillColor;
+    catch
+        try
+            wordCell.Range.Shading.BackgroundPatternColor = styleOptions.HeaderFillColor;
+        catch
+        end
+    end
+end
+if ~isempty(styleOptions.HeaderFontColor)
+    try
+        wordCell.Range.Font.Color = styleOptions.HeaderFontColor;
+    catch
+    end
+end
+end
+
+function colorValue = localWordRgb(redValue, greenValue, blueValue)
+colorValue = redValue + bitshift(greenValue, 8) + bitshift(blueValue, 16);
 end
 
 function localAddFigure(selection, state, filePath, captionText)
