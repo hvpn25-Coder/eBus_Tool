@@ -1843,6 +1843,16 @@ try
             headerRange.Font.Color = styleOptions.HeaderFontColor;
         catch
         end
+        try
+            headerRange.Font.TextColor.RGB = styleOptions.HeaderFontColor;
+        catch
+        end
+    end
+    if ~isempty(styleOptions.HeaderFontColorIndex)
+        try
+            headerRange.Font.ColorIndex = styleOptions.HeaderFontColorIndex;
+        catch
+        end
     end
 catch
 end
@@ -1856,6 +1866,7 @@ function styleOptions = localNormalizeWordTableStyle(styleOptions)
 defaults = struct();
 defaults.HeaderFillColor = [];
 defaults.HeaderFontColor = [];
+defaults.HeaderFontColorIndex = [];
 for iField = string(fieldnames(defaults))'
     fieldName = char(iField);
     if ~isfield(styleOptions, fieldName) || isempty(styleOptions.(fieldName))
@@ -1868,6 +1879,7 @@ function styleOptions = localSegmentTableStyle()
 styleOptions = struct();
 styleOptions.HeaderFillColor = localWordRgb(31, 78, 121);
 styleOptions.HeaderFontColor = localWordRgb(255, 255, 255);
+styleOptions.HeaderFontColorIndex = 8;
 end
 
 function localApplyHeaderCellStyle(wordCell, styleOptions)
@@ -1884,6 +1896,16 @@ end
 if ~isempty(styleOptions.HeaderFontColor)
     try
         wordCell.Range.Font.Color = styleOptions.HeaderFontColor;
+    catch
+    end
+    try
+        wordCell.Range.Font.TextColor.RGB = styleOptions.HeaderFontColor;
+    catch
+    end
+end
+if ~isempty(styleOptions.HeaderFontColorIndex)
+    try
+        wordCell.Range.Font.ColorIndex = styleOptions.HeaderFontColorIndex;
     catch
     end
 end
