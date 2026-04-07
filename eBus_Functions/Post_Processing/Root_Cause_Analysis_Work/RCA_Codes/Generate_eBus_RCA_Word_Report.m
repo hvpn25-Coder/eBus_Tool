@@ -89,8 +89,10 @@ reportOutput.Source = sourceInfo;
 
 fprintf('\nWord report generation completed.\n');
 fprintf('  Report   : %s\n', reportPath);
+fprintf('  %s\n', localOpenFileHyperlink(reportPath, 'Open generated Word report'));
 if strlength(templatePath) > 0
     fprintf('  Template : %s\n', templatePath);
+    fprintf('  %s\n', localOpenFileHyperlink(templatePath, 'Open generated template'));
 end
 
 function fileName = localReportFileName(language)
@@ -118,7 +120,17 @@ end
 end
 if strlength(samplePath) > 0
     fprintf('  Sample   : %s\n', samplePath);
+    fprintf('  %s\n', localOpenFileHyperlink(samplePath, 'Open generated sample'));
 end
+end
+
+function hyperlinkText = localOpenFileHyperlink(filePath, labelText)
+safePath = strrep(char(string(filePath)), '''', '''''');
+hyperlinkText = localMatlabHyperlink(sprintf('winopen(''%s'');', safePath), labelText);
+end
+
+function hyperlinkText = localMatlabHyperlink(commandText, labelText)
+hyperlinkText = sprintf('<a href="matlab:%s">%s</a>', commandText, labelText);
 end
 
 function options = localNormalizeOptions(options)
@@ -1801,6 +1813,8 @@ for iRow = 1:size(rows, 1)
     end
 end
 
+localApplyHeaderRowStyle(wordTable, styleOptions);
+
 try
     selection.SetRange(doc.Range.End - 1, doc.Range.End - 1);
 catch
@@ -1812,6 +1826,30 @@ catch
 end
 selection.TypeParagraph;
 selection.TypeParagraph;
+end
+
+function localApplyHeaderRowStyle(wordTable, styleOptions)
+try
+    headerRange = wordTable.Rows.Item(1).Range;
+    headerRange.Bold = true;
+    if ~isempty(styleOptions.HeaderFillColor)
+        try
+            headerRange.Shading.BackgroundPatternColor = styleOptions.HeaderFillColor;
+        catch
+        end
+    end
+    if ~isempty(styleOptions.HeaderFontColor)
+        try
+            headerRange.Font.Color = styleOptions.HeaderFontColor;
+        catch
+        end
+    end
+catch
+end
+
+for iCol = 1:wordTable.Columns.Count
+    localApplyHeaderCellStyle(wordTable.Cell(1, iCol), styleOptions);
+end
 end
 
 function styleOptions = localNormalizeWordTableStyle(styleOptions)
