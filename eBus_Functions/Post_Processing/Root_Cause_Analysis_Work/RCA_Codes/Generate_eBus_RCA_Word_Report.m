@@ -732,7 +732,7 @@ rows = {};
 
 if state.UseActualData && height(reportData.VehicleKPI) > 0
     rows = [rows; localFindKpiRow(reportData.VehicleKPI, 'Trip Distance')];
-    rows = [rows; localFindKpiRow(reportData.VehicleKPI, 'Trip Energy Intensity')];
+    rows = [rows; localFindKpiRow(reportData.VehicleKPI, 'Energy Intensity')];
     rows = [rows; localFindKpiRow(reportData.VehicleKPI, 'Battery Discharge Energy')];
 end
 if state.UseActualData && height(reportData.BadSegmentTable) > 0
@@ -977,6 +977,7 @@ localAddRelevantFigure(selection, reportData, state, {'Vehicle_Energy_Overview'}
     'Battery power and energy flow');
 localAddRelevantFigure(selection, reportData, state, {'Vehicle_Energy_Flow_Diagram'}, ...
     'Vehicle energy flow diagram');
+localAddEnergyIntensityCallout(doc, selection, reportData);
 
 localWriteObservationSection(selection, state, ...
     '11.3 Efficiency', ...
@@ -1687,6 +1688,23 @@ localWriteLabelParagraph(selection, 'Recommended next step', nextStepText);
 
 if state.IsTemplate
     selection.TypeText('Authoring note: keep this subsection concise and evidence-backed. Replace generic statements with direct reference to the actual KPI and figure evidence.');
+    selection.TypeParagraph;
+end
+end
+
+function localAddEnergyIntensityCallout(doc, selection, reportData)
+energyRows = [ ...
+    localFindKpiRow(reportData.VehicleKPI, 'Energy Intensity'); ...
+    localFindKpiRow(reportData.VehicleKPI, 'Battery Discharge Energy'); ...
+    localFindKpiRow(reportData.VehicleKPI, 'Battery Charge Energy')];
+
+if ~isempty(energyRows)
+    localWriteLabelParagraph(selection, 'Energy consumption per kilometre', ...
+        'The trip headline energy-consumption KPI is shown below so reviewers can read the Wh/km result directly in the energy-consumption section without searching the dashboard tables.');
+    localAddWordTable(doc, selection, 'Trip energy consumption per kilometre KPI', ...
+        {'KPI', 'Value', 'Engineering note'}, energyRows);
+else
+    selection.TypeText(char(localTranslateText('[Insert trip energy-consumption-per-kilometre KPI and supporting note.]')));
     selection.TypeParagraph;
 end
 end
