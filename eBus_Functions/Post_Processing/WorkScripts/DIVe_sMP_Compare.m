@@ -70,6 +70,7 @@ try
         'Name', 'DIVe sMP Compare', ...
         'CreateCancelBtn', '');
     set(h, 'Tag', 'ExecutionStatusWaitbar');
+    setappdata(h, 'StartTic', tic);
     configureWaitbarTextInterpreter(h);
 catch
     h = [];
@@ -83,7 +84,7 @@ end
 
 f = max(0, min(1, double(fraction)));
 try
-    waitbar(f, h, normalizeStatusMessage(messageText));
+    waitbar(f, h, buildStatusDisplayMessage(h, messageText, f));
     configureWaitbarTextInterpreter(h);
     drawnow;
 catch
@@ -104,6 +105,43 @@ function out = normalizeStatusMessage(messageText)
 out = char(string(messageText));
 if strlength(string(out)) == 0
     out = 'Working...';
+end
+end
+
+function out = buildStatusDisplayMessage(h, messageText, fraction)
+baseMessage = normalizeStatusMessage(messageText);
+startTic = [];
+try
+    startTic = getappdata(h, 'StartTic');
+catch
+end
+
+if isempty(startTic) || ~isscalar(fraction) || fraction <= 0
+    out = baseMessage;
+    return;
+end
+
+elapsedSeconds = toc(startTic);
+if fraction >= 1
+    remainingSeconds = 0;
+else
+    remainingSeconds = max(0, elapsedSeconds * (1 - fraction) / max(fraction, eps));
+end
+
+out = sprintf('%s\nApprox. time remaining: %s', ...
+    baseMessage, formatDurationText(remainingSeconds));
+end
+
+function out = formatDurationText(totalSeconds)
+totalSeconds = max(0, round(double(totalSeconds)));
+hoursPart = floor(totalSeconds / 3600);
+minutesPart = floor(mod(totalSeconds, 3600) / 60);
+secondsPart = mod(totalSeconds, 60);
+
+if hoursPart > 0
+    out = sprintf('%02d:%02d:%02d', hoursPart, minutesPart, secondsPart);
+else
+    out = sprintf('%02d:%02d', minutesPart, secondsPart);
 end
 end
 
