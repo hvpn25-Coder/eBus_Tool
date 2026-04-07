@@ -131,6 +131,7 @@ if strlength(samplePath) > 0
     fprintf('  %s\n', localOpenFileHyperlink(samplePath, 'Open generated sample'));
 end
 localUpdateProgressBar(progressState, 6, 6, 'Word report generation completed');
+localCloseProgressBar(progressState);
 end
 
 function hyperlinkText = localOpenFileHyperlink(filePath, labelText)
@@ -172,8 +173,9 @@ if isempty(progressState) || ~isstruct(progressState) || ~isfield(progressState,
     return;
 end
 try
-    if ishghandle(progressState.Handle)
-        close(progressState.Handle);
+    if isgraphics(progressState.Handle)
+        delete(progressState.Handle);
+        drawnow;
     end
 catch
 end

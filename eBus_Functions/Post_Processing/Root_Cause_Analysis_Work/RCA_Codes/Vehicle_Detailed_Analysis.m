@@ -122,6 +122,7 @@ fprintf('  Root-cause rows      : %d\n', height(rootCauseRanking));
 fprintf('  Output folder        : %s\n', outputPaths.Root);
 localPrintActionLinks();
 localUpdateProgressBar(progressState, totalSteps, totalSteps, 'RCA execution completed');
+localCloseProgressBar(progressState);
 end
 
 function [matFilePath, excelFilePath, outputRoot] = localResolveInputs(matFilePath, excelFilePath, outputRoot, config)
@@ -232,8 +233,9 @@ if isempty(progressState) || ~isstruct(progressState) || ~isfield(progressState,
     return;
 end
 try
-    if ishghandle(progressState.Handle)
-        close(progressState.Handle);
+    if isgraphics(progressState.Handle)
+        delete(progressState.Handle);
+        drawnow;
     end
 catch
 end
