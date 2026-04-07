@@ -1814,6 +1814,7 @@ for iRow = 1:size(rows, 1)
 end
 
 localApplyHeaderRowStyle(wordTable, styleOptions);
+localForceHeaderRowStyle(doc, wordTable, styleOptions);
 
 try
     selection.SetRange(doc.Range.End - 1, doc.Range.End - 1);
@@ -1859,6 +1860,37 @@ end
 
 for iCol = 1:wordTable.Columns.Count
     localApplyHeaderCellStyle(wordTable.Cell(1, iCol), styleOptions);
+end
+end
+
+function localForceHeaderRowStyle(doc, wordTable, styleOptions)
+try
+    wordTable.Rows.Item(1).Range.Select;
+    selection = doc.Application.Selection;
+    selection.Font.Bold = true;
+    if ~isempty(styleOptions.HeaderFontColor)
+        try
+            selection.Font.Color = styleOptions.HeaderFontColor;
+        catch
+        end
+        try
+            selection.Font.TextColor.RGB = styleOptions.HeaderFontColor;
+        catch
+        end
+    end
+    if ~isempty(styleOptions.HeaderFontColorIndex)
+        try
+            selection.Font.ColorIndex = styleOptions.HeaderFontColorIndex;
+        catch
+        end
+    end
+    if ~isempty(styleOptions.HeaderFillColor)
+        try
+            selection.Shading.BackgroundPatternColor = styleOptions.HeaderFillColor;
+        catch
+        end
+    end
+catch
 end
 end
 
