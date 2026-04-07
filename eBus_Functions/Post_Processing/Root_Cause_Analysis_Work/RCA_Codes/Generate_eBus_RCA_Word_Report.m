@@ -34,6 +34,9 @@ if nargin < 3 || isempty(options)
 end
 
 options = localNormalizeOptions(options);
+progressState = localCreateProgressBar('eBus RCA Word Report', 'Preparing Word report generation...');
+progressCleanup = onCleanup(@() localCloseProgressBar(progressState)); %#ok<NASGU>
+localUpdateProgressBar(progressState, 1, 6, 'Resolving RCA results and output folder');
 [results, sourceInfo] = localResolveResults(resultsInput);
 outputFolder = localResolveOutputFolder(results, outputFolder);
 if ~exist(outputFolder, 'dir')
@@ -45,10 +48,12 @@ if ~ispc
         'Word report generation requires Windows because it uses Microsoft Word COM automation.');
 end
 
+localUpdateProgressBar(progressState, 2, 6, 'Building report data model');
 reportData = localBuildReportData(results, sourceInfo, options);
 
 wordApp = [];
 try
+    localUpdateProgressBar(progressState, 3, 6, 'Starting Microsoft Word automation');
     wordApp = actxserver('Word.Application');
     wordApp.Visible = false;
     wordApp.DisplayAlerts = 0;
@@ -62,6 +67,7 @@ templatePath = "";
 samplePath = "";
 
 try
+    localUpdateProgressBar(progressState, 4, 6, 'Creating final Word document');
     localCreateReportDocument(wordApp, reportData, reportPath, 'report');
     if reportData.Options.CreateSupportingTemplateFiles
         supportFolder = fullfile(outputFolder, 'supporting_templates');
@@ -70,6 +76,7 @@ try
         end
         templatePath = fullfile(supportFolder, localTemplateFileName(reportData.Options.Language));
         samplePath = fullfile(supportFolder, localSampleFileName(reportData.Options.Language));
+        localUpdateProgressBar(progressState, 4.5, 6, 'Creating supporting template and sample files');
         localCreateReportDocument(wordApp, reportData, templatePath, 'template');
         localCreateReportDocument(wordApp, reportData, samplePath, 'sample');
     end
@@ -78,6 +85,7 @@ catch reportException
     rethrow(reportException);
 end
 
+localUpdateProgressBar(progressState, 5, 6, 'Closing Word and finalizing report output');
 localCleanupWord(wordApp);
 
 reportOutput = struct();
@@ -122,6 +130,7 @@ if strlength(samplePath) > 0
     fprintf('  Sample   : %s\n', samplePath);
     fprintf('  %s\n', localOpenFileHyperlink(samplePath, 'Open generated sample'));
 end
+localUpdateProgressBar(progressState, 6, 6, 'Word report generation completed');
 end
 
 function hyperlinkText = localOpenFileHyperlink(filePath, labelText)
@@ -131,6 +140,43 @@ end
 
 function hyperlinkText = localMatlabHyperlink(commandText, labelText)
 hyperlinkText = sprintf('<a href="matlab:%s">%s</a>', commandText, labelText);
+end
+
+function progressState = localCreateProgressBar(titleText, initialMessage)
+progressState = struct('Handle', [], 'Enabled', false);
+try
+    if usejava('desktop') && feature('ShowFigureWindows')
+        progressState.Handle = waitbar(0, initialMessage, 'Name', titleText, ...
+            'CreateCancelBtn', '', 'WindowStyle', 'normal');
+        progressState.Enabled = ishghandle(progressState.Handle);
+    end
+catch
+    progressState = struct('Handle', [], 'Enabled', false);
+end
+end
+
+function localUpdateProgressBar(progressState, currentStep, totalSteps, messageText)
+if isempty(progressState) || ~isstruct(progressState) || ~isfield(progressState, 'Enabled') || ~progressState.Enabled
+    return;
+end
+try
+    fraction = max(0, min(1, double(currentStep) / max(double(totalSteps), 1)));
+    waitbar(fraction, progressState.Handle, messageText);
+    drawnow limitrate;
+catch
+end
+end
+
+function localCloseProgressBar(progressState)
+if isempty(progressState) || ~isstruct(progressState) || ~isfield(progressState, 'Enabled') || ~progressState.Enabled
+    return;
+end
+try
+    if ishghandle(progressState.Handle)
+        close(progressState.Handle);
+    end
+catch
+end
 end
 
 function options = localNormalizeOptions(options)

@@ -26,6 +26,9 @@ function results = Vehicle_Detailed_Analysis(matFilePath, excelFilePath, outputR
 config = RCA_Config();
 [matFilePath, excelFilePath, outputRoot] = localResolveInputs(matFilePath, excelFilePath, outputRoot, config);
 outputPaths = localInitializeOutputFolders(outputRoot, matFilePath, config);
+progressState = localCreateProgressBar('Electric Bus RCA', 'Initializing RCA workflow...');
+progressCleanup = onCleanup(@() localCloseProgressBar(progressState)); %#ok<NASGU>
+totalSteps = 11;
 
 fprintf('\n============================================================\n');
 fprintf('Electric Bus Root Cause Analysis\n');
@@ -34,14 +37,23 @@ fprintf('Excel    : %s\n', excelFilePath);
 fprintf('Output   : %s\n', outputPaths.Root);
 fprintf('============================================================\n');
 
+localUpdateProgressBar(progressState, 1, totalSteps, 'Reading workbook metadata');
 metadata = RCA_ReadSignalCatalog(excelFilePath, config);
+localUpdateProgressBar(progressState, 2, totalSteps, 'Loading MAT file and inventory');
 rawData = RCA_LoadMatData(matFilePath, config);
+localUpdateProgressBar(progressState, 3, totalSteps, 'Checking signal and specification presence');
 [signals, specs, signalPresence, specPresence, extractionLog] = RCA_CheckSignalPresence(metadata, rawData, config);
+localUpdateProgressBar(progressState, 4, totalSteps, 'Aligning signals to reference time');
 [signals, referenceInfo] = RCA_AlignSignalStore(signals, rawData, config, metadata.TimeSignalNames);
+localUpdateProgressBar(progressState, 5, totalSteps, 'Building derived signals');
 derived = RCA_BuildDerivedSignals(signals, specs, referenceInfo, config);
+localUpdateProgressBar(progressState, 6, totalSteps, 'Creating trip segments');
 segments = RCA_CreateSegments(derived, config);
+localUpdateProgressBar(progressState, 7, totalSteps, 'Computing vehicle KPI');
 [vehicleKPI, vehicleNarrative] = RCA_ComputeVehicleKPIs(derived, signals, specs, signalPresence, config);
+localUpdateProgressBar(progressState, 8, totalSteps, 'Computing segment KPI');
 [segmentKPI, segmentSummary] = RCA_ComputeSegmentKPIs(derived, signals, specs, segments, config);
+localUpdateProgressBar(progressState, 9, totalSteps, 'Computing root-cause ranking');
 [rootCauseRanking, badSegmentTable, rootCauseNarrative, optimizationTable] = ...
     RCA_ComputeRootCauseScores(derived, signals, specs, segmentSummary, config);
 
@@ -64,8 +76,9 @@ analysisData.RootCauseRanking = rootCauseRanking;
 analysisData.BadSegmentTable = badSegmentTable;
 analysisData.OptimizationTable = optimizationTable;
 
+localUpdateProgressBar(progressState, 10, totalSteps, 'Generating figures and subsystem RCA');
 vehiclePlots = RCA_GenerateVehiclePlots(analysisData, outputPaths, config);
-subsystemResults = localRunSubsystemAnalyses(analysisData, outputPaths, config);
+subsystemResults = localRunSubsystemAnalyses(analysisData, outputPaths, config, progressState, 10, totalSteps);
 
 results = struct();
 results.Config = config;
@@ -90,6 +103,7 @@ results.AnalysisData = analysisData;
 results.ReportOutput = struct('ReportFile', "", 'TemplateFile', "", 'SampleFile', "", ...
     'OutputFolder', string(outputPaths.Root), 'Source', struct('HasResults', false));
 
+localUpdateProgressBar(progressState, 11, totalSteps, 'Saving RCA outputs');
 RCA_SaveOutputs(results, outputPaths, config);
 
 assignin('base', 'RCA_Results', results);
@@ -107,6 +121,7 @@ fprintf('  Segment summary rows : %d\n', height(segmentSummary));
 fprintf('  Root-cause rows      : %d\n', height(rootCauseRanking));
 fprintf('  Output folder        : %s\n', outputPaths.Root);
 localPrintActionLinks();
+localUpdateProgressBar(progressState, totalSteps, totalSteps, 'RCA execution completed');
 end
 
 function [matFilePath, excelFilePath, outputRoot] = localResolveInputs(matFilePath, excelFilePath, outputRoot, config)
@@ -154,7 +169,7 @@ for iPath = 1:numel(paths)
 end
 end
 
-function subsystemResults = localRunSubsystemAnalyses(analysisData, outputPaths, config)
+function subsystemResults = localRunSubsystemAnalyses(analysisData, outputPaths, config, progressState, progressStep, totalSteps)
 analyzers = { ...
     @Analyze_Environment, ...
     @Analyze_Driver, ...
@@ -175,6 +190,8 @@ subsystemResults = repmat(struct('Name', "", 'Available', false, 'RequiredSignal
     numel(analyzers), 1);
 
 for iAnalyzer = 1:numel(analyzers)
+    localUpdateProgressBar(progressState, progressStep - 0.5 + 0.5 * (iAnalyzer / max(numel(analyzers), 1)), totalSteps, ...
+        sprintf('Running subsystem RCA (%d/%d): %s', iAnalyzer, numel(analyzers), func2str(analyzers{iAnalyzer})));
     try
         subsystemResults(iAnalyzer) = analyzers{iAnalyzer}(analysisData, outputPaths, config);
         subsystemResults(iAnalyzer) = RCA_ApplySpecificationContext(subsystemResults(iAnalyzer), analysisData);
@@ -182,6 +199,43 @@ for iAnalyzer = 1:numel(analyzers)
         subsystemResults(iAnalyzer).Name = string(func2str(analyzers{iAnalyzer}));
         subsystemResults(iAnalyzer).Warnings = "Subsystem analysis failed: " + string(analysisException.message);
     end
+end
+end
+
+function progressState = localCreateProgressBar(titleText, initialMessage)
+progressState = struct('Handle', [], 'Enabled', false);
+try
+    if usejava('desktop') && feature('ShowFigureWindows')
+        progressState.Handle = waitbar(0, initialMessage, 'Name', titleText, ...
+            'CreateCancelBtn', '', 'WindowStyle', 'normal');
+        progressState.Enabled = ishghandle(progressState.Handle);
+    end
+catch
+    progressState = struct('Handle', [], 'Enabled', false);
+end
+end
+
+function localUpdateProgressBar(progressState, currentStep, totalSteps, messageText)
+if isempty(progressState) || ~isstruct(progressState) || ~isfield(progressState, 'Enabled') || ~progressState.Enabled
+    return;
+end
+try
+    fraction = max(0, min(1, double(currentStep) / max(double(totalSteps), 1)));
+    waitbar(fraction, progressState.Handle, messageText);
+    drawnow limitrate;
+catch
+end
+end
+
+function localCloseProgressBar(progressState)
+if isempty(progressState) || ~isstruct(progressState) || ~isfield(progressState, 'Enabled') || ~progressState.Enabled
+    return;
+end
+try
+    if ishghandle(progressState.Handle)
+        close(progressState.Handle);
+    end
+catch
 end
 end
 
