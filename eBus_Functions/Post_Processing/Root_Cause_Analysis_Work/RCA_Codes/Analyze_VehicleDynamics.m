@@ -3,7 +3,7 @@ function result = Analyze_VehicleDynamics(analysisData, outputPaths, config)
 
 result = localInitResult("VEHICLE DYNAMICS", ...
     {'veh_vel', 'veh_acc'}, ...
-    {'net_trac_trq', 'fric_brk_force', 'whl_force', 'roll_res_force', 'grad_force', 'aero_drag_force', 'veh_pos'});
+    {'veh_long_force', 'fric_brk_force', 'whl_force', 'roll_res_force', 'grad_force', 'aero_drag_force', 'veh_pos', 'veh_ma'});
 
 d = analysisData.Derived;
 t = d.time_s(:);
@@ -33,6 +33,7 @@ gradeForce = d.gradeForce_N(:);
 aeroForce = d.aeroDragForce_N(:);
 tractionPower = d.tractionPower_kW(:);
 roadSlope = d.roadSlope_pct(:);
+inertialForce = d.inertialForce_N(:);
 
 if ~any(isfinite(vehVel))
     vehVel = localAlignedSignal(analysisData.Signals, 'veh_vel', n);
@@ -44,7 +45,7 @@ if ~any(isfinite(vehPos))
     vehPos = localAlignedSignal(analysisData.Signals, 'veh_pos', n);
 end
 if ~any(isfinite(tractionForce))
-    tractionForce = localAlignedSignal(analysisData.Signals, 'net_trac_trq', n);
+    tractionForce = localAlignedSignal(analysisData.Signals, 'veh_long_force', n);
 end
 if ~any(isfinite(fricBrakeForce))
     fricBrakeForce = localAlignedSignal(analysisData.Signals, 'fric_brk_force', n);
@@ -60,6 +61,9 @@ if ~any(isfinite(gradeForce))
 end
 if ~any(isfinite(aeroForce))
     aeroForce = localAlignedSignal(analysisData.Signals, 'aero_drag_force', n);
+end
+if ~any(isfinite(inertialForce))
+    inertialForce = localAlignedSignal(analysisData.Signals, 'veh_ma', n);
 end
 
 if all(isnan(wheelForce)) && ~all(isnan(tractionForce))
@@ -86,6 +90,7 @@ steepUphillMask = movingMask & isfinite(roadSlope) & roadSlope >= config.Thresho
 roadLoad = rollForce + gradeForce + aeroForce;
 netLongitudinalForce = tractionForce - abs(fricBrakeForce) - roadLoad;
 forceBalanceError = wheelForce - (tractionForce - abs(fricBrakeForce));
+roadLoadBalanceError = wheelForce - (roadLoad + inertialForce);
 
 roadLoadEnergy = RCA_TrapzFinite(t, max(d.resistivePower_kW(:), 0)) / 3600;
 tractiveEnergy = RCA_TrapzFinite(t, max(tractionPower, 0)) / 3600;
@@ -141,6 +146,9 @@ rows = RCA_AddKPI(rows, 'Mean Net Longitudinal Force', mean(netLongitudinalForce
 rows = RCA_AddKPI(rows, 'Force Balance Error', mean(abs(forceBalanceError), 'omitnan'), 'N', ...
     'Consistency', 'Vehicle Dynamics', 'wheel force versus tractive and brake force balance', ...
     'Mean mismatch between wheel force and tractive-minus-brake force.');
+rows = RCA_AddKPI(rows, 'Road-Load Force Balance Error', mean(abs(roadLoadBalanceError), 'omitnan'), 'N', ...
+    'Consistency', 'Vehicle Dynamics', 'wheel force versus rolling + grade + aero + inertial force', ...
+    'Mean mismatch between wheel force and the road-load plus inertial-force balance.');
 rows = RCA_AddKPI(rows, 'Uphill Driving Share', 100 * RCA_FractionTrue(uphillMask, movingMask), '%', ...
     'Operation', 'Vehicle Dynamics', 'veh_vel + road_slp', ...
     'Share of moving samples in uphill operation.');
@@ -162,6 +170,7 @@ summary(end + 1) = sprintf(['Road-load split: rolling %.0f N, grade %.0f N, and 
 summary(end + 1) = sprintf(['Force-balance context: mean force-balance error is %.0f N and mean uphill net longitudinal force is %.0f N. ', ...
     'This indicates whether delivered wheel force is consistent with modeled vehicle motion demand.'], ...
     mean(abs(forceBalanceError), 'omitnan'), mean(netLongitudinalForce(uphillMask), 'omitnan'));
+summary(end + 1) = sprintf('Road-load balance context: mean wheel-to-road-load residual is %.0f N.', mean(abs(roadLoadBalanceError), 'omitnan'));
 
 if mean(rollForce, 'omitnan') > mean(aeroForce, 'omitnan') * 1.5
     recs(end + 1) = "Rolling resistance dominates aerodynamic drag; review tyre, road-loss, or wheel-loss assumptions before attributing poor efficiency to aero effects.";
@@ -174,6 +183,10 @@ end
 if mean(abs(forceBalanceError), 'omitnan') > 500
     recs(end + 1) = "Check wheel-force, tractive-force, and brake-force consistency because the longitudinal force balance shows material mismatch.";
     evidence(end + 1) = sprintf('Mean force-balance error is %.0f N.', mean(abs(forceBalanceError), 'omitnan'));
+end
+if mean(abs(roadLoadBalanceError), 'omitnan') > config.Thresholds.ForceBalanceResidualWarn_N
+    recs(end + 1) = "Check wheel-force versus rolling, grade, aerodynamic, and inertial terms because the road-load force balance shows material mismatch.";
+    evidence(end + 1) = sprintf('Mean road-load force-balance error is %.0f N.', mean(abs(roadLoadBalanceError), 'omitnan'));
 end
 if mean(netLongitudinalForce(uphillMask), 'omitnan') < 0
     recs(end + 1) = "Investigate uphill performance limitation. Net longitudinal force is negative on average in uphill operation, so delivered force may be insufficient to sustain demanded motion.";

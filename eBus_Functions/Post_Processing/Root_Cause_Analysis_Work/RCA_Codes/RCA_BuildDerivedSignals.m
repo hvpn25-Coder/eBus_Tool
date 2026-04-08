@@ -37,6 +37,10 @@ emot1Trq = localVector(signals, 'emot1_act_trq', n);
 emot2Trq = localVector(signals, 'emot2_act_trq', n);
 emot1Dem = localVector(signals, 'emot1_dem_trq', n);
 emot2Dem = localVector(signals, 'emot2_dem_trq', n);
+ctrlEmot1MaxDem = localVector(signals, 'max_emot1_dem_trq', n);
+ctrlEmot2MaxDem = localVector(signals, 'max_emot2_dem_trq', n);
+ctrlEmot1MinDem = localVector(signals, 'min_emot1_dem_trq', n);
+ctrlEmot2MinDem = localVector(signals, 'min_emot2_dem_trq', n);
 emot1Max = localVector(signals, 'emot1_max_av_trq', n);
 emot2Max = localVector(signals, 'emot2_max_av_trq', n);
 emot1Min = localVector(signals, 'emot1_min_av_trq', n);
@@ -56,8 +60,16 @@ gbxOutSpd = localVector(signals, 'gbx_out_spd', n);
 gbxLoss = localVector(signals, 'gbx_pwr_loss', n);
 
 tractionForce = localVector(signals, 'net_trac_trq', n);
+vehiclePropulsionForce = localVector(signals, 'veh_long_force', n);
 wheelForce = localVector(signals, 'whl_force', n);
-if all(isnan(tractionForce)) && ~all(isnan(wheelForce))
+if ~all(isnan(vehiclePropulsionForce))
+    tractionForce = vehiclePropulsionForce;
+elseif ~all(isnan(tractionForce))
+    wheelRadius = localScalar(specs, 'VDy_mec_rWheelDriven');
+    if isfinite(wheelRadius) && wheelRadius > eps
+        tractionForce = tractionForce ./ wheelRadius;
+    end
+elseif ~all(isnan(wheelForce))
     tractionForce = wheelForce;
 end
 if all(isnan(wheelForce))
@@ -69,6 +81,7 @@ fricBrakePower = localVector(signals, 'fric_brk_pwr', n);
 rollForce = localVector(signals, 'roll_res_force', n);
 gradeForce = localVector(signals, 'grad_force', n);
 aeroForce = localVector(signals, 'aero_drag_force', n);
+inertialForce = localVector(signals, 'veh_ma', n);
 
 battCurr = localVector(signals, 'batt_curr', n);
 battVolt = localVector(signals, 'batt_volt', n);
@@ -80,6 +93,7 @@ battTemp = localVector(signals, 'batt_temp', n);
 auxCurr = localVector(signals, 'aux_curr', n);
 auxVolt = localVector(signals, 'aux_volt', n);
 auxPwr = auxCurr .* auxVolt / 1000;
+hprPwr = localVector(signals, 'hpr_pwr', n);
 
 battChgCurrLim = localVector(signals, 'batt_chrg_curr_lim', n);
 battDisCurrLim = localVector(signals, 'batt_dischrg_curr_lim', n);
@@ -92,6 +106,8 @@ motorLossPwr = localCombineSum(emot1Loss, emot2Loss);
 motorSpeedRpm = localMeanAvailable(abs(emot1SpdRad) * 60 / (2 * pi), abs(emot2SpdRad) * 60 / (2 * pi));
 torqueActual = localCombineSum(emot1Trq, emot2Trq);
 torqueDemand = localCombineSum(emot1Dem, emot2Dem);
+controllerPositiveLimit = localCombineSum(ctrlEmot1MaxDem, ctrlEmot2MaxDem);
+controllerNegativeLimit = localCombineSum(ctrlEmot1MinDem, ctrlEmot2MinDem);
 torquePositiveLimit = localCombineSum(emot1Max, emot2Max);
 torqueNegativeLimit = localCombineSum(emot1Min, emot2Min);
 battPowerDischargePositive = localApplySignConvention(signals, {'batt_pwr'}, battPwr, 'discharge', 'charge');
@@ -99,6 +115,8 @@ battCurrentDischargePositive = localApplySignConvention(signals, {'batt_curr'}, 
 motorElecDrivePositive = localApplySignConvention(signals, {'emot1_pwr', 'emot2_pwr'}, motorElecPwr, 'driving', 'regeneration');
 torqueActualDrivePositive = localApplySignConvention(signals, {'emot1_act_trq', 'emot2_act_trq'}, torqueActual, 'driving', 'regeneration');
 torqueDemandDrivePositive = localApplySignConvention(signals, {'emot1_dem_trq', 'emot2_dem_trq'}, torqueDemand, 'driving', 'regeneration');
+controllerPositiveLimitDrivePositive = localApplySignConvention(signals, {'max_emot1_dem_trq', 'max_emot2_dem_trq'}, controllerPositiveLimit, 'driving', 'regeneration');
+controllerNegativeLimitDrivePositive = localApplySignConvention(signals, {'min_emot1_dem_trq', 'min_emot2_dem_trq'}, controllerNegativeLimit, 'driving', 'regeneration');
 torquePositiveLimitDrivePositive = localApplySignConvention(signals, {'emot1_max_av_trq', 'emot2_max_av_trq'}, torquePositiveLimit, 'driving', 'regeneration');
 torqueNegativeLimitDrivePositive = localApplySignConvention(signals, {'emot1_min_av_trq', 'emot2_min_av_trq'}, torqueNegativeLimit, 'driving', 'regeneration');
 gearboxOutputTorqueDrivePositive = localApplySignConvention(signals, {'gbx_out_trq'}, gbxOutTrq, 'driving', 'regeneration');
@@ -125,10 +143,14 @@ derived.brkPedal_pct = brkPdl;
 
 derived.torqueDemandRaw_Nm = torqueDemand;
 derived.torqueActualRaw_Nm = torqueActual;
+derived.controllerTorquePositiveLimitRaw_Nm = controllerPositiveLimit;
+derived.controllerTorqueNegativeLimitRaw_Nm = controllerNegativeLimit;
 derived.torquePositiveLimitRaw_Nm = torquePositiveLimit;
 derived.torqueNegativeLimitRaw_Nm = torqueNegativeLimit;
 derived.torqueDemandTotal_Nm = torqueDemandDrivePositive;
 derived.torqueActualTotal_Nm = torqueActualDrivePositive;
+derived.controllerTorquePositiveLimit_Nm = controllerPositiveLimitDrivePositive;
+derived.controllerTorqueNegativeLimit_Nm = controllerNegativeLimitDrivePositive;
 derived.torquePositiveLimit_Nm = torquePositiveLimitDrivePositive;
 derived.torqueNegativeLimit_Nm = torqueNegativeLimitDrivePositive;
 derived.motorSpeed_rpm = motorSpeedRpm;
@@ -145,6 +167,8 @@ derived.gearboxOutputTorque_Nm = gearboxOutputTorqueDrivePositive;
 derived.gearboxOutputSpeed_rads = gbxOutSpd;
 derived.gearboxLossPower_kW = gbxLoss;
 
+derived.finalDriveTorque_Nm = localApplySignConvention(signals, {'net_trac_trq'}, localVector(signals, 'net_trac_trq', n), 'driving', 'regeneration');
+derived.vehiclePropulsionForce_N = tractionForce;
 derived.tractionForce_N = tractionForce;
 derived.wheelForce_N = wheelForce;
 derived.tractionPower_kW = tractionPower;
@@ -154,6 +178,10 @@ derived.frictionBrakePower_kW = fricBrakePower;
 derived.rollingResistanceForce_N = rollForce;
 derived.gradeForce_N = gradeForce;
 derived.aeroDragForce_N = aeroForce;
+if all(isnan(inertialForce)) && ~all(isnan(vehAcc))
+    inertialForce = vehAcc .* localScalar(specs, 'VDy_mec_massVehicle_kg');
+end
+derived.inertialForce_N = inertialForce;
 derived.resistivePower_kW = resistivePower;
 
 derived.batteryCurrentRaw_A = battCurr;
@@ -181,6 +209,24 @@ derived.battDischargePowerLimit_kW = battDisPwrLim;
 derived.auxiliaryCurrent_A = auxCurr;
 derived.auxiliaryVoltage_V = auxVolt;
 derived.auxiliaryPower_kW = auxPwr;
+derived.highPowerResistorPower_kW = hprPwr;
+
+dcBusLoadPower = localCombineSum(motorElecDrivePositive, auxPwr);
+if ~all(isnan(hprPwr))
+    dcBusLoadPower = localCombineSum(dcBusLoadPower, hprPwr);
+end
+terminalBalanceResidual = battPowerDischargePositive - dcBusLoadPower;
+internalBalanceResidual = battPowerDischargePositive - battLoss - dcBusLoadPower;
+wheelFromPropulsionResidual = wheelForce - (tractionForce - abs(fricBrakeForce));
+roadLoadForce = localCombineSum(localCombineSum(rollForce, gradeForce), aeroForce);
+roadLoadResidual = wheelForce - localCombineSum(roadLoadForce, inertialForce);
+
+derived.dcBusLoadPower_kW = dcBusLoadPower;
+derived.powerBalanceResidualTerminal_kW = terminalBalanceResidual;
+derived.powerBalanceResidualInternal_kW = internalBalanceResidual;
+derived.forceBalanceResidualWheel_N = wheelFromPropulsionResidual;
+derived.forceBalanceResidualRoadLoad_N = roadLoadResidual;
+derived.roadLoadForce_N = roadLoadForce;
 
 derived.distanceStep_km = distanceStep;
 derived.tripDistance_km = max(vehPos, [], 'omitnan') - min(vehPos, [], 'omitnan');

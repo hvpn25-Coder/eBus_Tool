@@ -33,11 +33,20 @@ fig = figure('Color', 'w', 'Position', config.Plot.FigurePosition);
 subplot(3, 1, 1);
 plot(t, derived.batteryPower_kW, 'Color', config.Plot.Colors.Battery, 'LineWidth', config.Plot.LineWidth); hold on;
 plot(t, derived.auxiliaryPower_kW, '--', 'Color', config.Plot.Colors.Auxiliary, 'LineWidth', config.Plot.LineWidth);
+if ~all(isnan(derived.highPowerResistorPower_kW))
+    plot(t, derived.highPowerResistorPower_kW, '-.', 'Color', config.Plot.Colors.Demand, 'LineWidth', config.Plot.LineWidth);
+end
 plot(t, derived.motorLossPower_kW + derived.gearboxLossPower_kW + derived.batteryLossPower_kW, ':', 'Color', config.Plot.Colors.Warning, 'LineWidth', config.Plot.LineWidth);
 plot(t, zeros(size(t)), '-', 'Color', config.Plot.Colors.Neutral, 'LineWidth', 0.8);
 title('Vehicle Power Overview (Battery Discharge +, Charge -)');
 ylabel('Power (kW)');
-legend({'Battery power (RCA sign)', 'Auxiliary power', 'Logged loss power', 'Zero line'}, 'Location', 'best');
+legendEntries = {'Battery power (RCA sign)', 'Auxiliary power'};
+if ~all(isnan(derived.highPowerResistorPower_kW))
+    legendEntries{end + 1} = 'High-power resistor';
+end
+legendEntries{end + 1} = 'Logged loss power';
+legendEntries{end + 1} = 'Zero line';
+legend(legendEntries, 'Location', 'best');
 grid on;
 
 subplot(3, 1, 2);
@@ -65,6 +74,71 @@ plotFiles(end + 1) = string(RCA_SaveFigure(fig, outputPaths.FiguresVehicle, 'Veh
 plotNotes(end + 1) = "Energy overview plot summarizes the electrical burden, cumulative energy usage, and logged loss contributors. Battery power is normalized to discharge-positive sign from workbook metadata.";
 close(fig);
 
+fig = figure('Color', 'w', 'Position', config.Plot.FigurePosition);
+subplot(3, 1, 1);
+plot(t, derived.batteryPower_kW, 'Color', config.Plot.Colors.Battery, 'LineWidth', config.Plot.LineWidth); hold on;
+plot(t, derived.dcBusLoadPower_kW, '--', 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth);
+plot(t, derived.batteryPower_kW - derived.batteryLossPower_kW, ':', 'Color', config.Plot.Colors.Motor, 'LineWidth', config.Plot.LineWidth);
+title('Vehicle Power Balance');
+ylabel('Power (kW)');
+legend({'Battery power', 'Motor + auxiliary + HPR', 'Battery power minus battery loss'}, 'Location', 'best');
+grid on;
+
+subplot(3, 1, 2);
+plot(t, derived.powerBalanceResidualTerminal_kW, 'Color', config.Plot.Colors.Warning, 'LineWidth', config.Plot.LineWidth); hold on;
+plot(t, derived.powerBalanceResidualInternal_kW, '--', 'Color', config.Plot.Colors.Motor, 'LineWidth', config.Plot.LineWidth);
+plot(t, config.Thresholds.PowerBalanceResidualWarn_kW * ones(size(t)), ':', 'Color', config.Plot.Colors.Neutral, 'LineWidth', 0.8);
+plot(t, -config.Thresholds.PowerBalanceResidualWarn_kW * ones(size(t)), ':', 'Color', config.Plot.Colors.Neutral, 'LineWidth', 0.8);
+title('Power Balance Residuals');
+ylabel('Residual (kW)');
+legend({'Terminal residual', 'Residual with battery loss', 'Warning threshold'}, 'Location', 'best');
+grid on;
+
+subplot(3, 1, 3);
+scatter(derived.vehVel_kmh, abs(derived.powerBalanceResidualTerminal_kW), 12, derived.roadSlope_pct, 'filled');
+title('Power Balance Residual Versus Vehicle Speed');
+xlabel('Vehicle speed (km/h)');
+ylabel('|Terminal residual| (kW)');
+cb = colorbar;
+cb.Label.String = 'Road slope (%)';
+grid on;
+plotFiles(end + 1) = string(RCA_SaveFigure(fig, outputPaths.FiguresVehicle, 'Vehicle_Power_Balance', config));
+plotNotes(end + 1) = "Power-balance plot compares battery source power against motor, auxiliary, and resistor sink power and shows the residual mismatch over the trip.";
+close(fig);
+
+fig = figure('Color', 'w', 'Position', config.Plot.FigurePosition);
+subplot(3, 1, 1);
+plot(t, derived.vehiclePropulsionForce_N, 'Color', config.Plot.Colors.Motor, 'LineWidth', config.Plot.LineWidth); hold on;
+plot(t, derived.frictionBrakeForce_N, '--', 'Color', config.Plot.Colors.Warning, 'LineWidth', config.Plot.LineWidth);
+plot(t, derived.wheelForce_N, ':', 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth);
+title('Vehicle Force Path');
+ylabel('Force (N)');
+legend({'Vehicle propulsion force', 'Friction brake force', 'Wheel force'}, 'Location', 'best');
+grid on;
+
+subplot(3, 1, 2);
+plot(t, derived.roadLoadForce_N, 'Color', config.Plot.Colors.Slope, 'LineWidth', config.Plot.LineWidth); hold on;
+plot(t, derived.inertialForce_N, '--', 'Color', config.Plot.Colors.Gear, 'LineWidth', config.Plot.LineWidth);
+plot(t, derived.wheelForce_N, ':', 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth);
+title('Wheel Force Versus Road-Load Balance');
+ylabel('Force (N)');
+legend({'Rolling + grade + aero', 'Inertial force', 'Wheel force'}, 'Location', 'best');
+grid on;
+
+subplot(3, 1, 3);
+plot(t, derived.forceBalanceResidualWheel_N, 'Color', config.Plot.Colors.Warning, 'LineWidth', config.Plot.LineWidth); hold on;
+plot(t, derived.forceBalanceResidualRoadLoad_N, '--', 'Color', config.Plot.Colors.Motor, 'LineWidth', config.Plot.LineWidth);
+plot(t, config.Thresholds.ForceBalanceResidualWarn_N * ones(size(t)), ':', 'Color', config.Plot.Colors.Neutral, 'LineWidth', 0.8);
+plot(t, -config.Thresholds.ForceBalanceResidualWarn_N * ones(size(t)), ':', 'Color', config.Plot.Colors.Neutral, 'LineWidth', 0.8);
+title('Force Balance Residuals');
+xlabel('Time (s)');
+ylabel('Residual (N)');
+legend({'Wheel-path residual', 'Road-load residual', 'Warning threshold'}, 'Location', 'best');
+grid on;
+plotFiles(end + 1) = string(RCA_SaveFigure(fig, outputPaths.FiguresVehicle, 'Vehicle_Force_Balance', config));
+plotNotes(end + 1) = "Force-balance plot compares propulsion, braking, wheel, road-load, and inertial forces and exposes residual mismatch through the trip.";
+close(fig);
+
 energyData = localComputeVehicleEnergyFlow(derived, t);
 energyFigurePosition = config.Plot.FigurePosition;
 energyFigurePosition(3:4) = [1500 900];
@@ -81,6 +155,9 @@ localDrawEnergyNode(ax, [0.82 0.50 0.13 0.13], sprintf('Distance\n%.2f km', deri
 
 localDrawEnergyNode(ax, [0.09 0.73 0.14 0.10], sprintf('Battery Loss\n%.2f kWh', energyData.BattLoss_kWh), config.Plot.Colors.Warning, 10);
 localDrawEnergyNode(ax, [0.31 0.73 0.15 0.10], sprintf('Auxiliaries\n%.2f kWh', energyData.Aux_kWh), config.Plot.Colors.Auxiliary, 10);
+if energyData.HPR_kWh > 0
+    localDrawEnergyNode(ax, [0.46 0.73 0.10 0.10], sprintf('HPR\n%.2f kWh', energyData.HPR_kWh), config.Plot.Colors.Demand, 10);
+end
 localDrawEnergyNode(ax, [0.58 0.73 0.16 0.10], sprintf('Motor / Inverter Loss\n%.2f kWh', energyData.MotorLoss_kWh), config.Plot.Colors.Warning, 10);
 localDrawEnergyNode(ax, [0.79 0.73 0.16 0.10], sprintf('Transmission Loss\n%.2f kWh', energyData.GbxLoss_kWh), config.Plot.Colors.Warning, 10);
 
@@ -93,6 +170,9 @@ localDrawEnergyArrow(ax, [0.52 0.565], [0.59 0.565], sprintf('%.2f kWh', energyD
 localDrawEnergyArrow(ax, [0.77 0.565], [0.82 0.565], 'Vehicle motion', [0.00 0.03]);
 localDrawEnergyArrow(ax, [0.16 0.63], [0.16 0.73], sprintf('%.2f', energyData.BattLoss_kWh), [-0.03 0.00]);
 localDrawEnergyArrow(ax, [0.38 0.63], [0.38 0.73], sprintf('%.2f', energyData.Aux_kWh), [0.03 0.00]);
+if energyData.HPR_kWh > 0
+    localDrawEnergyArrow(ax, [0.51 0.63], [0.51 0.73], sprintf('%.2f', energyData.HPR_kWh), [0.03 0.00]);
+end
 localDrawEnergyArrow(ax, [0.66 0.63], [0.66 0.73], sprintf('%.2f', energyData.MotorLoss_kWh), [0.03 0.00]);
 localDrawEnergyArrow(ax, [0.87 0.63], [0.87 0.73], sprintf('%.2f', energyData.GbxLoss_kWh), [0.03 0.00]);
 localDrawEnergyArrow(ax, [0.66 0.50], [0.50 0.36], sprintf('Braking domain\n%.2f kWh', energyData.BrakeSplit_kWh), [0.00 0.04]);
@@ -248,13 +328,14 @@ energyData.Discharge_kWh = RCA_TrapzFinite(t, max(derived.batteryPower_kW, 0)) /
 energyData.Regen_kWh = RCA_TrapzFinite(t, max(-derived.batteryPower_kW, 0)) / 3600;
 energyData.NetBattery_kWh = energyData.Discharge_kWh - energyData.Regen_kWh;
 energyData.Aux_kWh = RCA_TrapzFinite(t, max(derived.auxiliaryPower_kW, 0)) / 3600;
+energyData.HPR_kWh = RCA_TrapzFinite(t, max(derived.highPowerResistorPower_kW, 0)) / 3600;
 energyData.BattLoss_kWh = RCA_TrapzFinite(t, max(derived.batteryLossPower_kW, 0)) / 3600;
 energyData.MotorLoss_kWh = RCA_TrapzFinite(t, max(derived.motorLossPower_kW, 0)) / 3600;
 energyData.GbxLoss_kWh = RCA_TrapzFinite(t, max(derived.gearboxLossPower_kW, 0)) / 3600;
 energyData.Traction_kWh = RCA_TrapzFinite(t, max(derived.tractionPower_kW, 0)) / 3600;
 energyData.Friction_kWh = RCA_TrapzFinite(t, max(derived.frictionBrakePower_kW, 0)) / 3600;
 energyData.BrakeSplit_kWh = energyData.Regen_kWh + energyData.Friction_kWh;
-energyData.NetBus_kWh = max(energyData.Discharge_kWh - energyData.Aux_kWh - energyData.BattLoss_kWh, 0);
+energyData.NetBus_kWh = max(energyData.Discharge_kWh - energyData.Aux_kWh - energyData.HPR_kWh - energyData.BattLoss_kWh, 0);
 if energyData.Discharge_kWh > 0
     energyData.BatteryToWheelEff_pct = 100 * energyData.Traction_kWh / energyData.Discharge_kWh;
 else

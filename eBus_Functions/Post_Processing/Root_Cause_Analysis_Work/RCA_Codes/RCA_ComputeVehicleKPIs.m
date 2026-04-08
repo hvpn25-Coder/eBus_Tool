@@ -37,6 +37,7 @@ if tripDistance > config.General.MinimumDistanceForWhpkm_km
 end
 
 auxEnergy = RCA_TrapzFinite(t, max(derived.auxiliaryPower_kW, 0)) / 3600;
+hprEnergy = RCA_TrapzFinite(t, max(derived.highPowerResistorPower_kW, 0)) / 3600;
 tractionEnergy = RCA_TrapzFinite(t, max(derived.tractionPower_kW, 0)) / 3600;
 motorLossEnergy = RCA_TrapzFinite(t, max(derived.motorLossPower_kW, 0)) / 3600;
 gbxLossEnergy = RCA_TrapzFinite(t, max(derived.gearboxLossPower_kW, 0)) / 3600;
@@ -44,6 +45,7 @@ battLossEnergy = RCA_TrapzFinite(t, max(derived.batteryLossPower_kW, 0)) / 3600;
 fricEnergy = RCA_TrapzFinite(t, max(derived.frictionBrakePower_kW, 0)) / 3600;
 
 rows = RCA_AddKPI(rows, 'Auxiliary Energy', auxEnergy, 'kWh', 'Energy', 'Vehicle', 'aux_curr + aux_volt', 'Integrated auxiliary electrical demand.');
+rows = RCA_AddKPI(rows, 'High Power Resistor Energy', hprEnergy, 'kWh', 'Energy', 'Vehicle', 'hpr_pwr', 'Integrated high-power resistor energy when available.');
 rows = RCA_AddKPI(rows, 'Traction Mechanical Energy', tractionEnergy, 'kWh', 'Energy', 'Vehicle', 'traction force + vehicle speed', 'Wheel-end mechanical work.');
 rows = RCA_AddKPI(rows, 'Battery Loss Energy', battLossEnergy, 'kWh', 'Losses', 'Vehicle', 'batt_loss_pwr', 'Battery internal/system loss integral.');
 rows = RCA_AddKPI(rows, 'Motor/Inverter Loss Energy', motorLossEnergy, 'kWh', 'Losses', 'Vehicle', 'emot loss power', 'Electric drive loss integral.');
@@ -64,6 +66,32 @@ end
 rows = RCA_AddKPI(rows, 'Battery-to-Wheel Efficiency', batteryToWheelEff, '%', 'Efficiency', 'Vehicle', 'batt_pwr + traction power', 'Mechanical wheel output over discharge-positive battery energy.');
 rows = RCA_AddKPI(rows, 'Auxiliary Energy Share', auxiliaryShare, '%', 'Efficiency', 'Vehicle', 'auxiliary power + battery power', 'Auxiliary share of discharge-positive battery energy.');
 rows = RCA_AddKPI(rows, 'Approximate Regen Recovery Fraction', regenRecovery, '%', 'Efficiency', 'Vehicle', 'batt_pwr + fric_brk_pwr', 'Recovered electrical braking divided by recovered plus friction braking energy after sign normalization.');
+
+terminalPowerResidual = derived.powerBalanceResidualTerminal_kW(:);
+internalPowerResidual = derived.powerBalanceResidualInternal_kW(:);
+wheelForceResidual = derived.forceBalanceResidualWheel_N(:);
+roadLoadForceResidual = derived.forceBalanceResidualRoadLoad_N(:);
+validPowerResidual = isfinite(terminalPowerResidual);
+validForceResidual = isfinite(wheelForceResidual);
+
+rows = RCA_AddKPI(rows, 'Power Balance Residual MAE (Terminal)', mean(abs(terminalPowerResidual), 'omitnan'), 'kW', ...
+    'Balance', 'Vehicle', 'battery power - (motor electrical + auxiliary + HPR)', ...
+    'Residual of terminal-level electrical power balance. Lower values indicate better agreement between source and sink powers.');
+rows = RCA_AddKPI(rows, 'Power Balance Residual 95th Percentile (Terminal)', RCA_Percentile(abs(terminalPowerResidual(validPowerResidual)), 95), 'kW', ...
+    'Balance', 'Vehicle', 'battery power - (motor electrical + auxiliary + HPR)', ...
+    'Tail severity of terminal-level electrical balance mismatch.');
+rows = RCA_AddKPI(rows, 'Power Balance Residual MAE (Internal)', mean(abs(internalPowerResidual), 'omitnan'), 'kW', ...
+    'Balance', 'Vehicle', 'battery power - battery loss - (motor electrical + auxiliary + HPR)', ...
+    'Residual after including battery loss in the electrical power balance.');
+rows = RCA_AddKPI(rows, 'Force Balance Residual MAE (Wheel Path)', mean(abs(wheelForceResidual), 'omitnan'), 'N', ...
+    'Balance', 'Vehicle', 'wheel force - (vehicle propulsion force - friction brake force)', ...
+    'Residual between wheel force and propulsion-minus-braking force path.');
+rows = RCA_AddKPI(rows, 'Force Balance Residual 95th Percentile (Wheel Path)', RCA_Percentile(abs(wheelForceResidual(validForceResidual)), 95), 'N', ...
+    'Balance', 'Vehicle', 'wheel force - (vehicle propulsion force - friction brake force)', ...
+    'Tail severity of the wheel-path force-balance mismatch.');
+rows = RCA_AddKPI(rows, 'Force Balance Residual MAE (Road Load)', mean(abs(roadLoadForceResidual), 'omitnan'), 'N', ...
+    'Balance', 'Vehicle', 'wheel force - (rolling + grade + aero + inertial force)', ...
+    'Residual between wheel force and summed road-load plus inertial forces.');
 
 gear = derived.gearNumber;
 changeIdx = find(abs(diff(gear)) > 0 & ~isnan(diff(gear))) + 1;
@@ -102,6 +130,8 @@ narrative(end + 1) = sprintf('Trip overview: %.2f km over %.1f s with %.1f km/h 
     tripDistance, tripDuration, mean(derived.vehVel_kmh, 'omitnan'), netEnergy);
 narrative(end + 1) = sprintf('Energy split: traction %.2f kWh, auxiliaries %.2f kWh, battery loss %.2f kWh, motor loss %.2f kWh, gearbox loss %.2f kWh.', ...
     tractionEnergy, auxEnergy, battLossEnergy, motorLossEnergy, gbxLossEnergy);
+narrative(end + 1) = sprintf('Balance checks: terminal power-balance MAE %.1f kW, wheel-path force-balance MAE %.0f N, and road-load force-balance MAE %.0f N.', ...
+    mean(abs(terminalPowerResidual), 'omitnan'), mean(abs(wheelForceResidual), 'omitnan'), mean(abs(roadLoadForceResidual), 'omitnan'));
 narrative(end + 1) = sprintf('Gear behaviour: %d shifts, %.1f shifts/km, %d detected hunting events.', ...
     shiftCount, shiftCount / max(tripDistance, eps), huntingCount);
 

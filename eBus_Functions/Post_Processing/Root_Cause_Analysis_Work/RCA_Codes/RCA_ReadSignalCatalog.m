@@ -32,6 +32,7 @@ else
 end
 
 subsystems = unique([signalCatalog.Subsystem; specCatalog.Subsystem; blockDiagram.Subsystem], 'stable');
+subsystemDescriptions = localBuildSubsystemDescriptions(blockDiagram);
 
 metadata = struct();
 metadata.ExcelFile = string(excelFilePath);
@@ -43,6 +44,7 @@ metadata.SignalCatalog = signalCatalog;
 metadata.SpecCatalog = specCatalog;
 metadata.BlockDiagram = blockDiagram;
 metadata.SubsystemList = subsystems;
+metadata.SubsystemDescriptions = subsystemDescriptions;
 metadata.TimeSignalNames = unique(signalCatalog.VariableName(signalCatalog.IsTimeSignal), 'stable');
 end
 
@@ -128,9 +130,11 @@ headerKeys = localNormalizeArray(headers);
 inputCol = localFindColumn(headerKeys, ["input"]);
 subsystemCol = localFindColumn(headerKeys, ["subsystem"]);
 outputCol = localFindColumn(headerKeys, ["output"]);
+descriptionCol = localFindColumn(headerKeys, ["description"]);
 
-rows = cell(0, 4);
+rows = cell(0, 5);
 currentSubsystem = "";
+currentDescription = "";
 for iRow = headerRow + 1:size(raw, 1)
     row = raw(iRow, :);
     if localRowIsEmpty(row)
@@ -140,6 +144,7 @@ for iRow = headerRow + 1:size(raw, 1)
     subsystem = localCellString(row{subsystemCol});
     if strlength(subsystem) > 0
         currentSubsystem = subsystem;
+        currentDescription = "";
     end
     if strlength(currentSubsystem) == 0 || strcmpi(currentSubsystem, 'Subsystem')
         continue;
@@ -147,18 +152,47 @@ for iRow = headerRow + 1:size(raw, 1)
 
     inputSignal = localCellString(row{inputCol});
     outputSignal = localCellString(row{outputCol});
+    rowDescription = localCellString(row{descriptionCol});
+    if strlength(rowDescription) > 0
+        currentDescription = rowDescription;
+    end
     if strlength(inputSignal) == 0 && strlength(outputSignal) == 0
         continue;
     end
 
-    rows(end + 1, :) = {localPrettySubsystem(currentSubsystem), inputSignal, outputSignal, string(sheetName)};
+    rows(end + 1, :) = {localPrettySubsystem(currentSubsystem), inputSignal, outputSignal, currentDescription, string(sheetName)};
 end
 
 if isempty(rows)
-    blockDiagram = table(strings(0, 1), strings(0, 1), strings(0, 1), strings(0, 1), ...
-        'VariableNames', {'Subsystem', 'InputSignal', 'OutputSignal', 'SourceSheet'});
+    blockDiagram = table(strings(0, 1), strings(0, 1), strings(0, 1), strings(0, 1), strings(0, 1), ...
+        'VariableNames', {'Subsystem', 'InputSignal', 'OutputSignal', 'Description', 'SourceSheet'});
 else
-    blockDiagram = cell2table(rows, 'VariableNames', {'Subsystem', 'InputSignal', 'OutputSignal', 'SourceSheet'});
+    blockDiagram = cell2table(rows, 'VariableNames', {'Subsystem', 'InputSignal', 'OutputSignal', 'Description', 'SourceSheet'});
+end
+end
+
+function subsystemDescriptions = localBuildSubsystemDescriptions(blockDiagram)
+if isempty(blockDiagram) || height(blockDiagram) == 0 || ~ismember('Description', blockDiagram.Properties.VariableNames)
+    subsystemDescriptions = table(strings(0, 1), strings(0, 1), 'VariableNames', {'Subsystem', 'Description'});
+    return;
+end
+
+rows = cell(0, 2);
+subsystems = unique(blockDiagram.Subsystem, 'stable');
+for iSub = 1:numel(subsystems)
+    mask = blockDiagram.Subsystem == subsystems(iSub);
+    descriptions = string(blockDiagram.Description(mask));
+    descriptions = descriptions(strlength(strtrim(descriptions)) > 0);
+    if isempty(descriptions)
+        continue;
+    end
+    rows(end + 1, :) = {subsystems(iSub), descriptions(1)}; %#ok<AGROW>
+end
+
+if isempty(rows)
+    subsystemDescriptions = table(strings(0, 1), strings(0, 1), 'VariableNames', {'Subsystem', 'Description'});
+else
+    subsystemDescriptions = cell2table(rows, 'VariableNames', {'Subsystem', 'Description'});
 end
 end
 

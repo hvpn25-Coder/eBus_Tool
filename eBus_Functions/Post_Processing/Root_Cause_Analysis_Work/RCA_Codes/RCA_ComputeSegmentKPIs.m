@@ -12,13 +12,14 @@ if isempty(t) || isempty(segments) || height(segments) == 0
         'TrackingMAE_kmh', 'AuxEnergyShare_pct', 'LossEnergy_kWh', 'LossShare_pct', ...
         'MotorLossShare_pct', 'GearboxLossShare_pct', 'RollingLoadShare_pct', 'AeroLoadShare_pct', ...
         'ShiftRate_per_km', 'HuntingCount', 'BatteryLimitUse_pct', 'RegenRecovery_pct', ...
+        'PowerBalanceMAE_kW', 'ForceBalanceMAE_N', ...
         'TorqueTrackingMAE_Nm', 'MotorHighSpeedShare_pct', 'EfficiencySeverity', 'PerformanceSeverity', ...
         'IsPoorEfficiency', 'IsPoorPerformance', 'IsHighLoss', 'PrimaryIssueTag', 'StatusNote'});
     return;
 end
 
 segmentRows = cell(0, 8);
-summaryRows = cell(0, 40);
+summaryRows = cell(0, 42);
 
 for iSeg = 1:height(segments)
     idx = segments.StartIndex(iSeg):segments.EndIndex(iSeg);
@@ -85,6 +86,8 @@ for iSeg = 1:height(segments)
     else
         regenRecovery = NaN;
     end
+    powerBalanceMae = mean(abs(derived.powerBalanceResidualTerminal_kW(idx)), 'omitnan');
+    forceBalanceMae = mean(abs(derived.forceBalanceResidualWheel_N(idx)), 'omitnan');
     meanSoc = mean(derived.batterySOC_pct(idx), 'omitnan');
     meanBatteryPower = mean(derived.batteryPower_kW(idx), 'omitnan');
     meanSpeed = mean(derived.vehVel_kmh(idx), 'omitnan');
@@ -120,7 +123,7 @@ for iSeg = 1:height(segments)
         segments.MotionClass(iSeg), segments.GradeClass(iSeg), segments.AuxClass(iSeg), segments.DominantGear(iSeg), ...
         segments.ShiftCount(iSeg), meanSpeed, meanSlope, meanSoc, meanBatteryPower, battDischarge, battRegen, whPerKm, ...
         trackingMae, auxShare, lossEnergy, lossShare, motorLossShare, gbxLossShare, rollingLoadShare, aeroLoadShare, ...
-        shiftRate, huntingCount, batteryLimitUse, regenRecovery, torqueTrackingMae, motorHighSpeedShare, ...
+        shiftRate, huntingCount, batteryLimitUse, regenRecovery, powerBalanceMae, forceBalanceMae, torqueTrackingMae, motorHighSpeedShare, ...
         NaN, NaN, false, false, false, "Unclassified", ""}; %#ok<AGROW>
 
     segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Distance', segDistance, 'km', 'Segment', 'Vehicle', 'veh_pos or integrated veh_vel', 'Segment distance.');
@@ -128,6 +131,8 @@ for iSeg = 1:height(segments)
     segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Tracking MAE', trackingMae, 'km/h', 'Segment', 'Vehicle', 'veh_des_vel + veh_vel', 'Segment tracking error.');
     segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Auxiliary Energy Share', auxShare, '%', 'Segment', 'Vehicle', 'auxiliary power + battery power', 'Auxiliary share relative to discharge-positive battery energy in this segment.');
     segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Loss Share', lossShare, '%', 'Segment', 'Vehicle', 'loss powers + battery power', 'Integrated loss share relative to discharge-positive battery energy in this segment.');
+    segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Power Balance MAE', powerBalanceMae, 'kW', 'Segment', 'Vehicle', 'battery power - (motor electrical + auxiliary + HPR)', 'Mean absolute electrical power-balance residual inside the segment.');
+    segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Force Balance MAE', forceBalanceMae, 'N', 'Segment', 'Vehicle', 'wheel force - (vehicle propulsion force - friction brake force)', 'Mean absolute wheel-path force-balance residual inside the segment.');
     segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Gear Shift Rate', shiftRate, 'shifts/km', 'Segment', 'Transmission', 'gr_num + segment distance', 'Gear change density inside the segment.');
 end
 
@@ -138,7 +143,7 @@ segmentSummary = cell2table(summaryRows, 'VariableNames', {'SegmentID', 'StartIn
     'TrackingMAE_kmh', 'AuxEnergyShare_pct', 'LossEnergy_kWh', 'LossShare_pct', ...
     'MotorLossShare_pct', 'GearboxLossShare_pct', 'RollingLoadShare_pct', 'AeroLoadShare_pct', ...
     'ShiftRate_per_km', 'HuntingCount', 'BatteryLimitUse_pct', 'RegenRecovery_pct', ...
-    'TorqueTrackingMAE_Nm', 'MotorHighSpeedShare_pct', 'EfficiencySeverity', 'PerformanceSeverity', ...
+    'PowerBalanceMAE_kW', 'ForceBalanceMAE_N', 'TorqueTrackingMAE_Nm', 'MotorHighSpeedShare_pct', 'EfficiencySeverity', 'PerformanceSeverity', ...
     'IsPoorEfficiency', 'IsPoorPerformance', 'IsHighLoss', 'PrimaryIssueTag', 'StatusNote'});
 
 validEnergy = segmentSummary.Distance_km > config.General.MinimumDistanceForWhpkm_km & isfinite(segmentSummary.Wh_per_km);

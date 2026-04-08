@@ -356,6 +356,7 @@ reportData.RunSourceText = localResolveRunSourceText(results, sourceInfo);
 reportData.SignalCatalog = localGetNestedTable(results, {'Metadata', 'SignalCatalog'});
 reportData.SpecCatalog = localGetNestedTable(results, {'Metadata', 'SpecCatalog'});
 reportData.BlockDiagram = localGetNestedTable(results, {'Metadata', 'BlockDiagram'});
+reportData.SubsystemDescriptions = localGetNestedTable(results, {'Metadata', 'SubsystemDescriptions'});
 reportData.VehicleKPI = localGetTableField(results, 'VehicleKPI');
 reportData.SegmentKPI = localGetTableField(results, 'SegmentKPI');
 reportData.SegmentSummary = localGetTableField(results, 'SegmentSummary');
@@ -1227,6 +1228,8 @@ localWriteObservationSection(selection, state, ...
     'Confirm whether the energy burden is dominated by route severity, auxiliaries, driveline losses, or control-related inefficiency.');
 localAddRelevantFigure(selection, reportData, state, {'Vehicle_Energy_Overview'}, ...
     'Battery power and energy flow');
+localAddRelevantFigure(selection, reportData, state, {'Vehicle_Power_Balance'}, ...
+    'Vehicle electrical power balance and residual mismatch');
 localAddRelevantFigure(selection, reportData, state, {'Vehicle_Energy_Flow_Diagram'}, ...
     'Vehicle energy flow diagram');
 localAddEnergyIntensityCallout(doc, selection, reportData);
@@ -1259,6 +1262,8 @@ localWriteObservationSection(selection, state, ...
     localComposeVehicleRootCause(reportData, 'performance'), ...
     localComposeSeverity(reportData, 'performance'), ...
     'Review representative underperformance events using worst-segment dashboards and subsystem drill-down evidence.');
+localAddRelevantFigure(selection, reportData, state, {'Vehicle_Force_Balance'}, ...
+    'Vehicle force balance and residual mismatch');
 
 localWriteObservationSection(selection, state, ...
     '11.6 Operational Anomalies', ...
@@ -1326,7 +1331,7 @@ for iSub = 1:numel(selectedSubsystems)
         headingText, ...
         localPrettyName(sub.Name), ...
         sub, ...
-        localSubsystemRoleText(sub.Name), ...
+        localSubsystemRoleText(sub.Name, reportData), ...
         localBuildSubsystemFigureTokenList(sub, reportData.Options.MaxSubsystemFigures), ...
         localBuildSubsystemFigureCaptions(sub, reportData.Options.MaxSubsystemFigures));
 end
@@ -1452,7 +1457,11 @@ orderIdx = localOrderSubsystems(selectedSubsystems, preferredOrder);
 selectedSubsystems = selectedSubsystems(orderIdx);
 end
 
-function roleText = localSubsystemRoleText(subsystemName)
+function roleText = localSubsystemRoleText(subsystemName, reportData)
+roleText = localLookupSubsystemDescription(reportData, subsystemName);
+if strlength(roleText) > 0
+    return;
+end
 normalizedName = upper(regexprep(string(subsystemName), '[^A-Za-z0-9]', ''));
 switch normalizedName
     case "ENVIRONMENT"
@@ -1479,6 +1488,26 @@ switch normalizedName
         roleText = 'The auxiliary subsystem draws non-traction electrical power from the HV system. Its duty-cycle and magnitude determine how much usable propulsion energy and range are consumed by support loads instead of vehicle motion.';
     otherwise
         roleText = 'This subsystem contributes to vehicle behaviour through its logged outputs, KPI trends, and interaction with the rest of the propulsion and vehicle system.';
+end
+end
+
+function descriptionText = localLookupSubsystemDescription(reportData, subsystemName)
+descriptionText = "";
+try
+    descriptions = reportData.SubsystemDescriptions;
+    if isempty(descriptions) || height(descriptions) == 0
+        return;
+    end
+    normalizedTarget = upper(regexprep(string(subsystemName), '[^A-Za-z0-9]', ''));
+    for iRow = 1:height(descriptions)
+        normalizedName = upper(regexprep(string(descriptions.Subsystem(iRow)), '[^A-Za-z0-9]', ''));
+        if normalizedName == normalizedTarget
+            descriptionText = strtrim(string(descriptions.Description(iRow)));
+            return;
+        end
+    end
+catch
+    descriptionText = "";
 end
 end
 
@@ -1828,7 +1857,9 @@ rows = {
     'Tracking MAE [km/h]', localRowFieldText(segmentRow, {'TrackingMAE_kmh'}, '');
     'Energy intensity [Wh/km]', localRowFieldText(segmentRow, {'Wh_per_km'}, '');
     'Loss share [%]', localRowFieldText(segmentRow, {'LossShare_pct'}, '');
-    'Regen recovery [%]', localRowFieldText(segmentRow, {'RegenRecovery_pct'}, '')
+    'Regen recovery [%]', localRowFieldText(segmentRow, {'RegenRecovery_pct'}, '');
+    'Power balance MAE [kW]', localRowFieldText(segmentRow, {'PowerBalanceMAE_kW'}, '');
+    'Force balance MAE [N]', localRowFieldText(segmentRow, {'ForceBalanceMAE_N'}, '')
     };
 
 if ~isempty(badRow)

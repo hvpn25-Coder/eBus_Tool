@@ -1,7 +1,7 @@
 function result = Analyze_FinalDrive(analysisData, outputPaths, config)
 % Analyze_FinalDrive  Final-drive torque-to-force delivery and road-force RCA.
 
-result = localInitResult("FINAL DRIVE", {'net_trac_trq'}, {'gbx_out_trq', 'whl_force', 'gr_num', 'gr_ratio'});
+result = localInitResult("FINAL DRIVE", {'net_trac_trq'}, {'veh_long_force', 'gbx_out_trq', 'whl_force', 'gr_num', 'gr_ratio'});
 
 d = analysisData.Derived;
 t = d.time_s(:);
@@ -35,7 +35,7 @@ finalDriveRatio = d.finalDriveRatio;
 wheelRadius = d.wheelRadius_m;
 
 if ~any(isfinite(tractionForce))
-    tractionForce = localAlignedSignal(analysisData.Signals, 'net_trac_trq', n);
+    tractionForce = localAlignedSignal(analysisData.Signals, 'veh_long_force', n);
 end
 if ~any(isfinite(wheelForce))
     wheelForce = localAlignedSignal(analysisData.Signals, 'whl_force', n);
