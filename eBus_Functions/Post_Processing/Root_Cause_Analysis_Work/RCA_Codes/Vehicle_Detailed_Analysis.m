@@ -77,6 +77,7 @@ analysisData.BadSegmentTable = badSegmentTable;
 analysisData.OptimizationTable = optimizationTable;
 
 localUpdateProgressBar(progressState, 10, totalSteps, 'Generating figures and subsystem RCA');
+hiddenFigureCleanup = localDisableInteractiveFigures(); %#ok<NASGU>
 vehiclePlots = RCA_GenerateVehiclePlots(analysisData, outputPaths, config);
 subsystemResults = localRunSubsystemAnalyses(analysisData, outputPaths, config, progressState, 10, totalSteps);
 
@@ -238,6 +239,17 @@ try
         drawnow;
     end
 catch
+end
+end
+
+function cleanupHandle = localDisableInteractiveFigures()
+cleanupHandle = [];
+try
+    originalVisible = get(groot, 'defaultFigureVisible');
+    set(groot, 'defaultFigureVisible', 'off');
+    cleanupHandle = onCleanup(@() set(groot, 'defaultFigureVisible', originalVisible));
+catch
+    cleanupHandle = [];
 end
 end
 
