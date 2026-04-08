@@ -144,15 +144,16 @@ hyperlinkText = sprintf('<a href="matlab:%s">%s</a>', commandText, labelText);
 end
 
 function progressState = localCreateProgressBar(titleText, initialMessage)
-progressState = struct('Handle', [], 'Enabled', false);
+progressState = struct('Handle', [], 'Enabled', false, 'StartTic', []);
 try
     if usejava('desktop') && feature('ShowFigureWindows')
+        progressState.StartTic = tic;
         progressState.Handle = waitbar(0, initialMessage, 'Name', titleText, ...
             'CreateCancelBtn', '', 'WindowStyle', 'normal');
         progressState.Enabled = ishghandle(progressState.Handle);
     end
 catch
-    progressState = struct('Handle', [], 'Enabled', false);
+    progressState = struct('Handle', [], 'Enabled', false, 'StartTic', []);
 end
 end
 
@@ -162,7 +163,8 @@ if isempty(progressState) || ~isstruct(progressState) || ~isfield(progressState,
 end
 try
     fraction = max(0, min(1, double(currentStep) / max(double(totalSteps), 1)));
-    waitbar(fraction, progressState.Handle, messageText);
+    displayMessage = localComposeProgressMessage(progressState, fraction, messageText);
+    waitbar(fraction, progressState.Handle, displayMessage);
     drawnow limitrate;
 catch
 end
@@ -178,6 +180,45 @@ try
         drawnow;
     end
 catch
+end
+end
+
+function displayMessage = localComposeProgressMessage(progressState, fraction, messageText)
+displayMessage = char(string(messageText));
+if ~isfield(progressState, 'StartTic') || isempty(progressState.StartTic) || fraction <= 0
+    return;
+end
+
+try
+    elapsedSeconds = toc(progressState.StartTic);
+catch
+    elapsedSeconds = NaN;
+end
+
+if ~isfinite(elapsedSeconds) || elapsedSeconds < 0
+    return;
+end
+
+if fraction >= 1
+    displayMessage = sprintf('%s\nElapsed: %s | Remaining: 00:00', ...
+        char(string(messageText)), localFormatDuration(elapsedSeconds));
+    return;
+end
+
+estimatedRemaining = elapsedSeconds * (1 - fraction) / max(fraction, eps);
+displayMessage = sprintf('%s\nElapsed: %s | Remaining: %s', ...
+    char(string(messageText)), localFormatDuration(elapsedSeconds), localFormatDuration(estimatedRemaining));
+end
+
+function textValue = localFormatDuration(durationSeconds)
+durationSeconds = max(0, round(double(durationSeconds)));
+hoursValue = floor(durationSeconds / 3600);
+minutesValue = floor(mod(durationSeconds, 3600) / 60);
+secondsValue = mod(durationSeconds, 60);
+if hoursValue > 0
+    textValue = sprintf('%02d:%02d:%02d', hoursValue, minutesValue, secondsValue);
+else
+    textValue = sprintf('%02d:%02d', minutesValue, secondsValue);
 end
 end
 

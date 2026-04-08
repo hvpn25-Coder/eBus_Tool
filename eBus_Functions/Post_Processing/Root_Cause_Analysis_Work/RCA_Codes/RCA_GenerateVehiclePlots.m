@@ -243,7 +243,7 @@ if ~isempty(analysisData.SegmentSummary)
     bar(seg.SegmentID, [seg.AuxEnergyShare_pct, seg.LossShare_pct], 'stacked');
     title('Segment Auxiliary and Loss Share');
     xlabel('Segment ID');
-    ylabel('Share of battery discharge (%)');
+    ylabel({'Share of battery discharge (%)', '(net consuming segments only)'});
     legend({'Auxiliary share', 'Loss share'}, 'Location', 'best');
     grid on;
     plotFiles(end + 1) = string(RCA_SaveFigure(fig, outputPaths.FiguresVehicle, 'Vehicle_Segment_Ranking', config));

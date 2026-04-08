@@ -33,20 +33,24 @@ for iSeg = 1:height(segments)
     gbxLoss = RCA_TrapzFinite(segTime, max(derived.gearboxLossPower_kW(idx), 0)) / 3600;
     fricEnergy = RCA_TrapzFinite(segTime, max(derived.frictionBrakePower_kW(idx), 0)) / 3600;
     lossEnergy = battLoss + motorLoss + gbxLoss + fricEnergy;
+    netElectricalConsumption = battDischarge - battRegen;
     if segDistance > config.General.MinimumDistanceForWhpkm_km
-        whPerKm = 1000 * (battDischarge - battRegen) / segDistance;
+        whPerKm = 1000 * netElectricalConsumption / segDistance;
     else
         whPerKm = NaN;
     end
     trackingMae = mean(abs(derived.speedError_kmh(idx)), 'omitnan');
     torqueTrackingMae = mean(abs(derived.torqueDemandTotal_Nm(idx) - derived.torqueActualTotal_Nm(idx)), 'omitnan');
-    if battDischarge > 0
+    shareBasisIsMeaningful = battDischarge > config.General.MinimumSegmentDischargeForShare_kWh && ...
+        netElectricalConsumption > config.General.MinimumSegmentNetConsumptionForShare_kWh;
+    if shareBasisIsMeaningful
         auxShare = 100 * auxEnergy / battDischarge;
         lossShare = 100 * lossEnergy / battDischarge;
         motorLossShare = 100 * motorLoss / battDischarge;
         gbxLossShare = 100 * gbxLoss / battDischarge;
         rollingLoadShare = 100 * RCA_TrapzFinite(segTime, max(derived.rollingResistanceForce_N(idx), 0) .* max(derived.vehVel_mps(idx), 0) / 1000) / 3600 / battDischarge;
         aeroLoadShare = 100 * RCA_TrapzFinite(segTime, max(derived.aeroDragForce_N(idx), 0) .* max(derived.vehVel_mps(idx), 0) / 1000) / 3600 / battDischarge;
+        shareStatusNote = "Share metrics are reported against gross battery discharge because the segment is net energy consuming.";
     else
         auxShare = NaN;
         lossShare = NaN;
@@ -54,6 +58,7 @@ for iSeg = 1:height(segments)
         gbxLossShare = NaN;
         rollingLoadShare = NaN;
         aeroLoadShare = NaN;
+        shareStatusNote = "Share metrics are suppressed because the segment is regen-dominant or has too little gross discharge for a meaningful percentage basis.";
     end
     dischargePower = max(derived.batteryPower_kW(idx), 0);
     chargePower = max(-derived.batteryPower_kW(idx), 0);
@@ -124,13 +129,13 @@ for iSeg = 1:height(segments)
         segments.ShiftCount(iSeg), meanSpeed, meanSlope, meanSoc, meanBatteryPower, battDischarge, battRegen, whPerKm, ...
         trackingMae, auxShare, lossEnergy, lossShare, motorLossShare, gbxLossShare, rollingLoadShare, aeroLoadShare, ...
         shiftRate, huntingCount, batteryLimitUse, regenRecovery, powerBalanceMae, forceBalanceMae, torqueTrackingMae, motorHighSpeedShare, ...
-        NaN, NaN, false, false, false, "Unclassified", ""}; %#ok<AGROW>
+        NaN, NaN, false, false, false, "Unclassified", string(shareStatusNote)}; %#ok<AGROW>
 
     segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Distance', segDistance, 'km', 'Segment', 'Vehicle', 'veh_pos or integrated veh_vel', 'Segment distance.');
     segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Net Energy Intensity', whPerKm, 'Wh/km', 'Segment', 'Vehicle', 'batt_pwr + segment distance', 'Segment net electrical intensity using discharge-positive battery convention.');
     segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Tracking MAE', trackingMae, 'km/h', 'Segment', 'Vehicle', 'veh_des_vel + veh_vel', 'Segment tracking error.');
-    segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Auxiliary Energy Share', auxShare, '%', 'Segment', 'Vehicle', 'auxiliary power + battery power', 'Auxiliary share relative to discharge-positive battery energy in this segment.');
-    segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Loss Share', lossShare, '%', 'Segment', 'Vehicle', 'loss powers + battery power', 'Integrated loss share relative to discharge-positive battery energy in this segment.');
+    segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Auxiliary Energy Share', auxShare, '%', 'Segment', 'Vehicle', 'auxiliary power + battery power', shareStatusNote);
+    segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Loss Share', lossShare, '%', 'Segment', 'Vehicle', 'loss powers + battery power', shareStatusNote);
     segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Power Balance MAE', powerBalanceMae, 'kW', 'Segment', 'Vehicle', 'battery power - (motor electrical + auxiliary + HPR)', 'Mean absolute electrical power-balance residual inside the segment.');
     segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Force Balance MAE', forceBalanceMae, 'N', 'Segment', 'Vehicle', 'wheel force - (vehicle propulsion force - friction brake force)', 'Mean absolute wheel-path force-balance residual inside the segment.');
     segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Gear Shift Rate', shiftRate, 'shifts/km', 'Segment', 'Transmission', 'gr_num + segment distance', 'Gear change density inside the segment.');
@@ -164,7 +169,8 @@ segmentSummary.PrimaryIssueTag = repmat("Mixed", height(segmentSummary), 1);
 segmentSummary.PrimaryIssueTag(segmentSummary.IsPoorEfficiency & ~segmentSummary.IsPoorPerformance) = "Efficiency";
 segmentSummary.PrimaryIssueTag(~segmentSummary.IsPoorEfficiency & segmentSummary.IsPoorPerformance) = "Performance";
 segmentSummary.PrimaryIssueTag(segmentSummary.IsHighLoss) = "HighLoss";
-segmentSummary.StatusNote = repmat("Segment summary computed from available signals with workbook sign conventions applied.", height(segmentSummary), 1);
+emptyStatus = strlength(segmentSummary.StatusNote) == 0;
+segmentSummary.StatusNote(emptyStatus) = "Segment summary computed from available signals with workbook sign conventions applied.";
 
 segmentKPI = cell2table(segmentRows, 'VariableNames', {'SegmentID', 'KPIName', 'Value', 'Unit', ...
     'Category', 'Subsystem', 'SignalBasis', 'StatusNote'});
