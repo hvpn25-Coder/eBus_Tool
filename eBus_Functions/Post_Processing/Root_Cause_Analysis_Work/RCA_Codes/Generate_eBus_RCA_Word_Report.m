@@ -1553,14 +1553,6 @@ elseif isnumeric(raw) || islogical(raw)
 end
 end
 
-function textValue = localLogicalText(tf)
-if tf
-    textValue = 'Yes';
-else
-    textValue = 'No';
-end
-end
-
 function localWriteVehicleAssessmentSection(doc, selection, reportData, state)
 localAddHeading(selection, '11. Vehicle-Level Assessment', 1);
 
