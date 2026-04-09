@@ -2192,9 +2192,11 @@ cleanupFig = onCleanup(@()closeIfValid(hf));
 
 t = tiledlayout(numel(targetSubplots), 1, 'TileSpacing', 'compact', 'Padding', 'compact');
 title(t, figTitle, 'Interpreter', 'none');
+axesList = gobjects(numel(targetSubplots), 1);
 
 for iSub = 1:numel(targetSubplots)
     ax = nexttile(t, iSub);
+    axesList(iSub) = ax;
     hold(ax, 'on');
     grid(ax, 'on');
 
@@ -2310,6 +2312,8 @@ for iSub = 1:numel(targetSubplots)
     end
     hold(ax, 'off');
 end
+
+linkSubplotXAxis(axesList);
 
 imagePath = string([tempname '.png']);
 exportgraphics(hf, imagePath, 'Resolution', 200);
@@ -2889,9 +2893,11 @@ for iFile = 1:numel(contextsByFile)
             hFig = figure('Name', figTitle, 'NumberTitle', 'off', 'Color', 'w');
             t = tiledlayout(nSubplots, 1, 'TileSpacing', 'compact', 'Padding', 'compact');
             title(t, figTitle, 'Interpreter', 'none');
+            axesList = gobjects(nSubplots, 1);
 
             for iSub = 1:nSubplots
                 ax = nexttile(t, iSub);
+                axesList(iSub) = ax;
                 hold(ax, 'on');
                 grid(ax, 'on');
 
@@ -3012,6 +3018,8 @@ for iFile = 1:numel(contextsByFile)
                 hold(ax, 'off');
             end
 
+            linkSubplotXAxis(axesList);
+
             if saveFigs
                 try
                     baseName = sprintf('Figure_%s_%s_%s', char(string(figNo)), char(groupNames(iGroup)), char(fileLabel));
@@ -3023,6 +3031,17 @@ for iFile = 1:numel(contextsByFile)
             end
         end
     end
+end
+end
+
+function linkSubplotXAxis(axesList)
+validAxes = axesList(isgraphics(axesList, 'axes'));
+if numel(validAxes) <= 1
+    return;
+end
+try
+    linkaxes(validAxes, 'x');
+catch
 end
 end
 
