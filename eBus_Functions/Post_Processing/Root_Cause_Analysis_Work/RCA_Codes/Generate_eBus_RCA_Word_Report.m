@@ -618,7 +618,9 @@ end
 
 function sectionMap = localBuildSectionSourceMap()
 rows = { ...
-    '3 Executive Summary', 'Vehicle_Detailed_Analysis results struct', 'VehicleNarrative, RootCauseNarrative, RootCauseRanking, OptimizationTable'; ...
+    '1 Cover Page', 'Generate_eBus_RCA_Word_Report.m', 'Report title, subtitle, metadata, run-source context'; ...
+    '2 Document Control', 'Generate_eBus_RCA_Word_Report.m', 'Document purpose, scope, version history, review and approval metadata'; ...
+    '6 Technical Summary', 'Vehicle_Detailed_Analysis results struct', 'VehicleNarrative, RootCauseNarrative, RootCauseRanking, OptimizationTable'; ...
     '9 Simulation and Data Overview', 'RCA_ReadSignalCatalog.m / RCA_LoadMatData.m', 'Metadata workbook parsing, MAT inventory, signal presence'; ...
     '10 Analysis Methodology', 'Vehicle_Detailed_Analysis.m and RCA helper functions', 'Segmentation, KPI framework, root-cause scoring logic'; ...
     '11 Vehicle-Level Assessment', 'RCA_ComputeVehicleKPIs.m / RCA_GenerateVehiclePlots.m', 'Vehicle KPI tables and vehicle figures'; ...
@@ -639,20 +641,23 @@ state.Mode = string(mode);
 state.UseActualData = mode ~= "template";
 state.IsTemplate = mode == "template";
 state.IsSample = mode == "sample";
+state.OutputFolder = string(fileparts(outputPath));
 localCurrentReportLanguage(reportData.Options.Language);
 cleanupLanguage = onCleanup(@() localCurrentReportLanguage("EN"));
 
 localConfigureDocument(doc);
 
+localWriteTitleOnlyPage(selection, reportData);
+localInsertPageBreak(selection);
 localWriteCoverPage(selection, reportData, state);
 localInsertPageBreak(selection);
 localWriteDocumentControlSection(doc, selection, reportData, state);
 localInsertPageBreak(selection);
-localWriteExecutiveSummarySection(doc, selection, reportData, state);
-localInsertPageBreak(selection);
 localWriteTocSection(selection);
 localInsertPageBreak(selection);
 localWriteFigureAndTableLists(selection);
+localInsertPageBreak(selection);
+localWriteExecutiveSummarySection(doc, selection, reportData, state);
 localInsertPageBreak(selection);
 localWriteAbbreviationsSection(doc, selection, reportData);
 localInsertPageBreak(selection);
@@ -703,10 +708,14 @@ catch
 end
 end
 
-function localWriteCoverPage(selection, reportData, state)
+function localWriteTitleOnlyPage(selection, reportData)
 localApplyStyle(selection, 'Title');
 selection.TypeText(char(reportData.Title));
 selection.TypeParagraph;
+end
+
+function localWriteCoverPage(selection, reportData, state)
+localAddHeading(selection, '1. Cover Page', 1);
 
 localApplyStyle(selection, 'Subtitle');
 selection.TypeText(char(reportData.Subtitle));
@@ -741,41 +750,55 @@ end
 function localWriteDocumentControlSection(doc, selection, reportData, state)
 localAddHeading(selection, '2. Document Control', 1);
 
-selection.TypeText('Document purpose: ');
-selection.Font.Bold = true;
-selection.TypeText('This report consolidates electric bus simulation evidence into a structured root-cause analysis focused on efficiency, performance, operating behaviour, and subsystem contribution.');
-selection.Font.Bold = false;
-selection.TypeParagraph;
-
-selection.TypeText('Scope: ');
-selection.Font.Bold = true;
+localAddHeading(selection, '2.1 Document Purpose', 2);
 if state.IsTemplate
-    selection.TypeText('Define the simulation case boundaries, relevant subsystems, assumptions, and exclusions for the study.');
+    localWriteStringList(selection, '', [ ...
+        "State why the report exists and which engineering decisions it is intended to support."; ...
+        "Clarify that the document converts simulation outputs into structured observations, RCA hypotheses, and actions."; ...
+        "State whether this issue is draft, review, or release-ready."]);
 else
-    selection.TypeText('Vehicle-level and subsystem-level assessment of the available simulation case(s), with emphasis on event-based RCA, bad-segment evidence, and actionable engineering recommendations.');
+    localWriteStringList(selection, '', [ ...
+        "This report converts electric bus simulation outputs into a formal technical RCA package for engineering review and decision-making."; ...
+        "It is intended to provide a single evidence base that links vehicle-level behaviour, subsystem-level contributors, and actionable engineering follow-up items."; ...
+        "The report supports decisions related to control calibration, subsystem modelling, architecture refinement, loss reduction, and additional simulation or test planning."; ...
+        "The document is written so technical managers can scan the high-level findings while subsystem owners can trace every major conclusion back to KPI, plots, segment evidence, and likely causes."]);
 end
-selection.Font.Bold = false;
-selection.TypeParagraph;
+
+localAddHeading(selection, '2.2 Scope', 2);
+if state.IsTemplate
+    localWriteStringList(selection, '', [ ...
+        "Define the simulation case boundaries, relevant subsystems, assumptions, and exclusions for the study."; ...
+        "State whether the report covers one run, a scenario family, or a comparison set."; ...
+        "State which questions are intentionally outside the current report scope."]);
+else
+    localWriteStringList(selection, '', [ ...
+        "The scope covers vehicle-level and subsystem-level RCA for the currently supplied simulation data set, including energy, efficiency, performance, control behaviour, route context, and event-based behaviour."; ...
+        "The analysis includes signal audit, derived KPI generation, event-based segmentation, bad-segment selection, root-cause ranking, subsystem drill-down, and recommendation generation."; ...
+        "The report uses workbook-defined signals, specifications, sign conventions, and subsystem descriptions as the primary metadata source for interpretation and traceability."; ...
+        "The scope does not constitute direct correlation to physical vehicle test results unless such validation evidence is separately added to the study package."]);
+end
 selection.TypeParagraph;
 
-localAddHeading(selection, '2.1 Version History', 2);
+localAddHeading(selection, '2.3 Version History', 2);
 versionHeaders = {'Version', 'Date', 'Author', 'Description of Change'};
 versionRows = {
-    char(reportData.Version), char(reportData.DateString), char(reportData.Author), 'Initial automated RCA report issue';
-    '0.x', '[Insert Date]', '[Insert Author]', 'Draft / working issue placeholder'};
+    '1.0', char(reportData.DateString), char(reportData.Author), 'Initial automated RCA report issue';
+    '1.1', '[Insert Date]', '[Insert Author]', 'Updated after technical review comments';
+    '1.2', '[Insert Date]', '[Insert Author]', 'Released issue with finalized findings and actions'};
 localAddWordTable(doc, selection, 'Version history table', versionHeaders, versionRows);
 
-localAddHeading(selection, '2.2 Review and Approval', 2);
+localAddHeading(selection, '2.4 Review and Approval', 2);
 reviewHeaders = {'Role', 'Name', 'Review Date', 'Status / Comment'};
 reviewRows = {
-    'Technical Manager', '[Insert Reviewer]', '[Insert Date]', '[Insert Status]';
+    'Simulation Engineer', char(reportData.Author), '[Insert Date]', '[Insert Status]';
     'Simulation Lead', '[Insert Reviewer]', '[Insert Date]', '[Insert Status]';
-    'Subsystem Owner', '[Insert Reviewer]', '[Insert Date]', '[Insert Status]'};
+    'Module Owner', '[Insert Reviewer]', '[Insert Date]', '[Insert Status]';
+    'Product Owner', '[Insert Reviewer]', '[Insert Date]', '[Insert Status]'};
 localAddWordTable(doc, selection, 'Reviewer and approver table', reviewHeaders, reviewRows);
 end
 
 function localWriteExecutiveSummarySection(doc, selection, reportData, state)
-localAddHeading(selection, '3. Executive Summary', 1);
+localAddHeading(selection, '6. Technical Summary', 1);
 localWriteLabelParagraph(selection, 'Why this analysis was performed', reportData.Executive.Why);
 localWriteLabelParagraph(selection, 'What data was used', reportData.Executive.Data);
 localWriteStringList(selection, 'Top 5 critical findings', reportData.Executive.Findings);
@@ -809,17 +832,17 @@ end
 end
 
 function localWriteTocSection(selection)
-localAddHeading(selection, '4. Table of Contents', 1);
+localAddHeading(selection, '3. Table of Contents', 1);
 localInsertField(selection, 'TOC \o "1-3" \h \z \u');
 selection.TypeParagraph;
 end
 
 function localWriteFigureAndTableLists(selection)
-localAddHeading(selection, '5. List of Figures', 1);
+localAddHeading(selection, '4. List of Figures', 1);
 localInsertField(selection, sprintf('TOC \\h \\z \\c "%s"', char(localCaptionLabel('Figure'))));
 selection.TypeParagraph;
 
-localAddHeading(selection, '6. List of Tables', 1);
+localAddHeading(selection, '5. List of Tables', 1);
 localInsertField(selection, sprintf('TOC \\h \\z \\c "%s"', char(localCaptionLabel('Table'))));
 selection.TypeParagraph;
 end
@@ -972,8 +995,27 @@ if isempty(rows)
 end
 end
 
-function localWriteMethodologySection(doc, selection, reportData, ~)
+function localWriteMethodologySection(doc, selection, reportData, state)
 localAddHeading(selection, '10. Analysis Methodology', 1);
+
+selection.TypeText(['This section explains how the RCA moves from raw simulation data to ranked engineering conclusions. ', ...
+    'The workflow is intentionally sequential and traceable: each downstream result depends on a visible upstream processing step, ', ...
+    'and each major conclusion is expected to connect back to signals, derived metrics, segment logic, and subsystem evidence.']);
+selection.TypeParagraph;
+
+localAddHeading(selection, '10.0 Methodology Flow Chart', 2);
+selection.TypeText(['The flow chart below summarizes the end-to-end RCA workflow used in the MATLAB automation. ', ...
+    'It shows how workbook metadata, MAT signals, derived calculations, event-based segmentation, and subsystem drill-down are combined before report generation.']);
+selection.TypeParagraph;
+
+flowChartPath = localCreateMethodologyFlowChart(state, reportData);
+if strlength(flowChartPath) > 0 && isfile(flowChartPath)
+    localAddFigure(selection, state, char(flowChartPath), ...
+        'Methodology flow chart showing the end-to-end RCA process from workbook and MAT inputs to KPI generation, bad-segment detection, subsystem RCA, and report output.');
+else
+    selection.TypeText('[Insert methodology flow chart showing input ingestion, signal audit, alignment, derived signal generation, segmentation, KPI generation, bad-segment selection, root-cause scoring, subsystem RCA, and report generation.]');
+    selection.TypeParagraph;
+end
 
 subsections = { ...
     '10.1 Overall RCA Workflow', ...
@@ -987,15 +1029,15 @@ subsections = { ...
     '10.9 Confidence Ranking of Findings'};
 
 texts = { ...
-    'The workflow reads workbook metadata, inspects the MAT file, checks signal presence, aligns signals to a common time base, derives key traces, computes vehicle and segment KPIs, ranks likely root causes, runs subsystem-specific analyses, and finally assembles evidence into a review-ready report.', ...
-    'KPIs are computed using base MATLAB only. Numerical integrations use finite-sample-tolerant logic. Each KPI stores its name, value, unit, category, subsystem, signal basis, and limitation note so downstream reporting remains auditable.', ...
-    'Vehicle-level assessment combines speed tracking, energy flow, efficiency, range sensitivity, loss breakdown, gear behaviour, and environmental context to explain what the bus did over the full trip.', ...
-    'Subsystem drill-downs run only when the relevant signals are available. Each subsystem section reports role, signals used, key KPIs, observed issue patterns, root cause candidates, and recommended improvements.', ...
+    'The workflow begins with workbook-driven metadata parsing and MAT-file inspection. Signals are then validated, extracted, aligned to a common time basis, and converted into physically interpretable derived traces before any KPI or RCA logic is run. The workflow then splits into vehicle-level KPI generation, event-based segment generation, bad-segment identification, cause ranking, subsystem RCA, and final reporting. This ordering matters because the RCA is not a free-form observation engine; it is a traceable evidence pipeline.', ...
+    'KPIs are computed using base MATLAB only. Integrations and averages are designed to be tolerant to finite-sample gaps, duplicate time repairs, and partial signal availability. Each KPI carries name, value, unit, category, subsystem, signal basis, and limitation note so the report can distinguish a complete calculation from an approximate or partially observed one. This makes the RCA auditable and reviewable when questions arise about a specific metric.', ...
+    'Vehicle-level assessment combines speed tracking, energy flow, power balance, force balance, efficiency, range sensitivity, loss breakdown, gear behaviour, and environmental context to explain what the bus did over the full trip. The vehicle layer is the place where route-level symptoms are identified first, before responsibility is pushed into subsystem drill-down.', ...
+    'Subsystem drill-downs run only when the relevant signals are available. Each subsystem section reports role, signals used, key KPIs, observed issue patterns, root cause candidates, and recommended improvements. The subsystem RCA therefore acts as an evidence-refinement stage: it explains whether a vehicle-level symptom is linked to controller behaviour, electrical limitations, driveline loss mechanisms, route loads, or auxiliary burden.', ...
     'The RCA partitions the trip into meaningful dynamic or route-context segments using speed, acceleration, slope, stop conditions, and other event cues. Some subsystem analyses also create event-specific partitions such as acceleration, braking, or cruise segments.', ...
     'Bad segments are detected using configured heuristics such as poor tracking, high energy intensity, high loss share, or explicit subsystem-specific thresholds. Threshold values are centralized in RCA_Config.m so they can be reviewed rather than hidden inside the logic.', ...
-    'The methodology distinguishes direct observation from inference. Repeated physical patterns are ranked using normalized severity or contribution indicators, but conclusions remain hypotheses unless the logged data provides direct causal proof.', ...
-    'Probable root causes are assigned using evidence features such as slope severity, battery limit usage, gear instability, controller tracking error, loss share, and regen recovery performance. Ranking is therefore physics-guided rather than purely statistical.', ...
-    'Confidence is reported qualitatively based on evidence breadth and signal completeness. Findings supported by multiple independent signals or repeated across segments are treated with higher confidence than those derived from sparse evidence.'};
+    'The methodology distinguishes direct observation from inference. Observations are the measured or derived quantities themselves, such as a high loss share or poor speed tracking. Inferences are made only after checking whether multiple signals and physical relationships support the same explanation. This is important because some patterns can look correlated without being causal when the segment context changes quickly.', ...
+    'Probable root causes are assigned using evidence features such as slope severity, battery limit usage, gear instability, controller tracking error, loss share, regen recovery performance, and subsystem availability. Ranking is therefore physics-guided rather than purely statistical. The scorer does not claim proof; it prioritizes which causes most plausibly explain the symptom with the available evidence.', ...
+    'Confidence is reported qualitatively based on evidence breadth, signal completeness, and repeatability across the drive cycle. Findings supported by several independent signals, consistent segment behaviour, and subsystem agreement are treated as higher confidence than those driven by sparse or indirect evidence only.'};
 
 for iSection = 1:numel(subsections)
     localAddHeading(selection, subsections{iSection}, 2);
@@ -1013,6 +1055,100 @@ if height(reportData.ThresholdTable) > 0
     localAddWordTable(doc, selection, 'Representative analysis thresholds and rationale', ...
         reportData.ThresholdTable.Properties.VariableNames, thresholdRows);
 end
+end
+
+function figurePath = localCreateMethodologyFlowChart(state, reportData)
+figurePath = "";
+if ~isfield(state, 'OutputFolder') || strlength(string(state.OutputFolder)) == 0
+    return;
+end
+
+figureFolder = fullfile(char(state.OutputFolder), 'Generated_Reports_Methodology');
+if ~exist(figureFolder, 'dir')
+    mkdir(figureFolder);
+end
+figurePath = string(fullfile(figureFolder, sprintf('RCA_Methodology_Flow_%s.png', char(reportData.Options.Language))));
+
+fig = [];
+try
+    visibleState = 'off';
+    fig = figure('Visible', visibleState, 'Color', 'w', 'Position', [100 100 1600 900]);
+    ax = axes('Parent', fig, 'Position', [0 0 1 1]);
+    axis(ax, [0 1 0 1]);
+    axis(ax, 'off');
+    hold(ax, 'on');
+
+    localDrawFlowBox(ax, [0.05 0.78 0.16 0.11], '1. Input Sources', ...
+        {'MAT simulation log', 'Workbook metadata', 'Signal/spec definitions'}, [0.86 0.92 0.98]);
+    localDrawFlowBox(ax, [0.28 0.78 0.16 0.11], '2. Data Audit', ...
+        {'MAT inventory', 'Signal/spec presence', 'Ambiguity handling'}, [0.90 0.94 0.99]);
+    localDrawFlowBox(ax, [0.51 0.78 0.16 0.11], '3. Signal Preparation', ...
+        {'Extract traces', 'Repair time base', 'Align samples'}, [0.90 0.96 0.91]);
+    localDrawFlowBox(ax, [0.74 0.78 0.20 0.11], '4. Derived Engineering Signals', ...
+        {'Energy terms', 'Power/force balance', 'Drive-state context'}, [0.94 0.95 0.88]);
+
+    localDrawFlowBox(ax, [0.10 0.53 0.20 0.12], '5. Vehicle-Level KPI Layer', ...
+        {'Trip KPI', 'Energy and efficiency', 'Performance and losses'}, [0.92 0.89 0.97]);
+    localDrawFlowBox(ax, [0.40 0.53 0.20 0.12], '6. Event-Based Segmentation', ...
+        {'Motion + grade + aux + gear', 'Segment summary', 'Event grouping'}, [0.88 0.95 0.95]);
+    localDrawFlowBox(ax, [0.70 0.53 0.20 0.12], '7. Bad-Segment Screening', ...
+        {'Poor efficiency', 'Poor performance', 'High-loss shortlist'}, [0.99 0.91 0.88]);
+
+    localDrawFlowBox(ax, [0.18 0.27 0.22 0.12], '8. Root-Cause Ranking', ...
+        {'Severity scoring', 'Evidence normalization', 'Contributor ranking'}, [0.96 0.93 0.87]);
+    localDrawFlowBox(ax, [0.52 0.27 0.22 0.12], '9. Subsystem RCA Drill-Down', ...
+        {'Environment', 'Driver', 'Powertrain and energy systems'}, [0.89 0.93 0.99]);
+    localDrawFlowBox(ax, [0.37 0.05 0.26 0.12], '10. Reported Outputs', ...
+        {'Plots', 'Tables', 'Narratives', 'Word report and review links'}, [0.91 0.96 0.90]);
+
+    localDrawFlowArrow(ax, [0.21 0.835], [0.28 0.835]);
+    localDrawFlowArrow(ax, [0.44 0.835], [0.51 0.835]);
+    localDrawFlowArrow(ax, [0.67 0.835], [0.74 0.835]);
+
+    localDrawFlowArrow(ax, [0.59 0.78], [0.22 0.65]);
+    localDrawFlowArrow(ax, [0.59 0.78], [0.50 0.65]);
+    localDrawFlowArrow(ax, [0.84 0.78], [0.80 0.65]);
+
+    localDrawFlowArrow(ax, [0.30 0.59], [0.40 0.59]);
+    localDrawFlowArrow(ax, [0.60 0.59], [0.70 0.59]);
+
+    localDrawFlowArrow(ax, [0.80 0.53], [0.29 0.39]);
+    localDrawFlowArrow(ax, [0.80 0.53], [0.63 0.39]);
+
+    localDrawFlowArrow(ax, [0.29 0.27], [0.48 0.17]);
+    localDrawFlowArrow(ax, [0.63 0.27], [0.52 0.17]);
+
+    text(ax, 0.50, 0.96, 'RCA Methodology Flow Chart', 'HorizontalAlignment', 'center', ...
+        'FontSize', 17, 'FontWeight', 'bold', 'Color', [0.10 0.10 0.10]);
+    text(ax, 0.50, 0.93, ...
+        'Traceable workflow from workbook and MAT inputs to event-based RCA, subsystem drill-down, and final reporting', ...
+        'HorizontalAlignment', 'center', 'FontSize', 10.5, 'Color', [0.25 0.25 0.25]);
+
+    exportgraphics(fig, char(figurePath), 'Resolution', 180, 'BackgroundColor', 'white');
+catch
+    figurePath = "";
+end
+
+if ~isempty(fig) && isgraphics(fig)
+    close(fig);
+end
+end
+
+function localDrawFlowBox(ax, positionVector, titleText, bulletLines, faceColor)
+rectangle(ax, 'Position', positionVector, 'Curvature', 0.03, 'FaceColor', faceColor, ...
+    'EdgeColor', [0.35 0.35 0.35], 'LineWidth', 1.4);
+text(ax, positionVector(1) + positionVector(3) / 2, positionVector(2) + positionVector(4) * 0.76, titleText, ...
+    'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle', 'FontWeight', 'bold', 'FontSize', 11);
+if ~isempty(bulletLines)
+    bodyText = strjoin(string(bulletLines(:)), newline);
+    text(ax, positionVector(1) + 0.012, positionVector(2) + positionVector(4) * 0.50, bodyText, ...
+        'HorizontalAlignment', 'left', 'VerticalAlignment', 'top', 'FontSize', 9.2, 'Color', [0.15 0.15 0.15]);
+end
+end
+
+function localDrawFlowArrow(ax, startPoint, endPoint)
+annotation(ax.Parent, 'arrow', [startPoint(1) endPoint(1)], [startPoint(2) endPoint(2)], ...
+    'Color', [0.25 0.25 0.25], 'LineWidth', 1.5, 'HeadLength', 8, 'HeadWidth', 8);
 end
 
 function localWriteSegmentationMethodDetail(doc, selection, reportData)
@@ -2855,8 +2991,8 @@ end
 keys = { ...
     'Figure', 'Table', ...
     'Project / Program: ', 'Author: ', 'Date: ', 'Version: ', 'Confidentiality: ', 'Company / Department: ', ...
-    '2. Document Control', '2.1 Version History', '2.2 Review and Approval', ...
-    '3. Executive Summary', '4. Table of Contents', '5. List of Figures', '6. List of Tables', ...
+    '1. Cover Page', '2. Document Control', '2.1 Document Purpose', '2.2 Scope', '2.3 Version History', '2.4 Review and Approval', ...
+    '3. Table of Contents', '4. List of Figures', '5. List of Tables', '6. Technical Summary', ...
     '7. Abbreviations / Nomenclature', '8. Introduction', ...
     '8.1 Background of eBus Simulation Program', '8.2 Objective of the Root Cause Analysis', ...
     '8.3 Questions This Report Answers', '8.4 Intended Audience', '8.5 Report Boundaries and Assumptions', ...
@@ -2896,8 +3032,8 @@ keys = { ...
 values = { ...
     'Abbildung', 'Tabelle', ...
     'Projekt / Programm: ', 'Autor: ', 'Datum: ', 'Version: ', 'Vertraulichkeit: ', 'Firma / Abteilung: ', ...
-    '2. Dokumentenlenkung', '2.1 Versionshistorie', '2.2 Prüfung und Freigabe', ...
-    '3. Management Summary', '4. Inhaltsverzeichnis', '5. Abbildungsverzeichnis', '6. Tabellenverzeichnis', ...
+    '1. Deckblatt', '2. Dokumentenlenkung', '2.1 Dokumentzweck', '2.2 Geltungsbereich', '2.3 Versionshistorie', '2.4 Prüfung und Freigabe', ...
+    '3. Inhaltsverzeichnis', '4. Abbildungsverzeichnis', '5. Tabellenverzeichnis', '6. Technische Zusammenfassung', ...
     '7. Abkürzungen / Nomenklatur', '8. Einleitung', ...
     '8.1 Hintergrund des eBus-Simulationsprogramms', '8.2 Ziel der Root-Cause-Analyse', ...
     '8.3 Fragestellungen dieses Berichts', '8.4 Zielgruppe', '8.5 Berichtsgrenzen und Annahmen', ...
