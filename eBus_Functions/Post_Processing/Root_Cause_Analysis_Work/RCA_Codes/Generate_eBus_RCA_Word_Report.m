@@ -1046,7 +1046,7 @@ for iSection = 1:numel(subsections)
     if strcmp(subsections{iSection}, '10.5 Event-Based Segmentation Approach')
         localWriteSegmentationMethodDetail(doc, selection, reportData);
     elseif strcmp(subsections{iSection}, '10.6 Bad Segment Detection Logic')
-        localWriteBadSegmentMethodDetail(doc, selection, reportData);
+        localWriteBadSegmentMethodDetail(doc, selection, reportData, state);
     end
 end
 
@@ -1185,13 +1185,22 @@ else
 end
 end
 
-function localWriteBadSegmentMethodDetail(doc, selection, reportData)
+function localWriteBadSegmentMethodDetail(doc, selection, reportData, state)
 localAddHeading(selection, '10.6.1 Bad Segment Detection Flow', 3);
 selection.TypeText(['Bad-segment detection is not a separate raw re-segmentation step. ', ...
     'The workflow first creates the base segment table, then evaluates each segment against efficiency-severity, performance-severity, and loss-severity evidence. ', ...
     'Any segment that trips one or more poor-performance / poor-efficiency / high-loss flags becomes a bad-segment candidate. ', ...
     'If no segment crosses those flags, the RCA still forces review of the worst segments by severity ranking so the report always contains a prioritized engineering issue list.']);
 selection.TypeParagraph;
+
+badFlowChartPath = localCreateBadSegmentFlowChart(state, reportData);
+if strlength(badFlowChartPath) > 0 && isfile(badFlowChartPath)
+    localAddFigure(selection, state, char(badFlowChartPath), ...
+        'Detailed bad-segment analysis flow chart showing how segment KPI, severity flags, fallback shortlist logic, and cause ranking are combined before the final bad-segment table is built.');
+else
+    selection.TypeText('[Insert bad-segment flow chart showing segment KPI inputs, flag logic, fallback shortlist generation, cause scoring, and final bad-segment table generation.]');
+    selection.TypeParagraph;
+end
 
 localAddWordTable(doc, selection, 'Illustration of bad-segment detection flow', ...
     {'Step', 'Input evidence', 'Logic applied', 'Output used downstream'}, ...
@@ -1219,6 +1228,81 @@ else
     selection.TypeText(['No explicit bad segments were recorded in the current run. ', ...
         'In that case, the RCA falls back to the worst-severity segments so that the review still contains a prioritized investigation list.']);
     selection.TypeParagraph;
+end
+
+localAddHeading(selection, '10.6.4 Worked Evaluation Illustration', 3);
+selection.TypeText(['The worked illustration below shows how one segment is evaluated from raw segment-level KPI into a bad-segment decision. ', ...
+    'The purpose is to make the scoring logic reviewable by showing the inputs, the threshold comparison, the triggered flags, and the resulting shortlist action in one place.']);
+selection.TypeParagraph;
+localAddWordTable(doc, selection, 'Worked evaluation of one segment against bad-segment criteria', ...
+    {'Evaluation step', 'Input value or condition', 'Decision rule', 'Evaluation result'}, ...
+    localBuildBadSegmentEvaluationRows(reportData));
+end
+
+function figurePath = localCreateBadSegmentFlowChart(state, reportData)
+figurePath = "";
+if ~isfield(state, 'OutputFolder') || strlength(string(state.OutputFolder)) == 0
+    return;
+end
+
+figureFolder = fullfile(char(state.OutputFolder), 'Generated_Reports_Methodology');
+if ~exist(figureFolder, 'dir')
+    mkdir(figureFolder);
+end
+figurePath = string(fullfile(figureFolder, sprintf('RCA_BadSegment_Flow_%s.png', char(reportData.Options.Language))));
+
+fig = [];
+try
+    fig = figure('Visible', 'off', 'Color', 'w', 'Position', [100 100 1650 950]);
+    ax = axes('Parent', fig, 'Position', [0 0 1 1]);
+    axis(ax, [0 1 0 1]);
+    axis(ax, 'off');
+    hold(ax, 'on');
+
+    localDrawFlowBox(ax, [0.07 0.79 0.18 0.11], '1. Segment KPI Inputs', ...
+        {'Wh/km', 'Tracking MAE', 'Loss share', 'Torque error'}, [0.88 0.93 0.99]);
+    localDrawFlowBox(ax, [0.32 0.79 0.18 0.11], '2. Severity Measures', ...
+        {'Efficiency severity', 'Performance severity', 'Loss severity'}, [0.90 0.96 0.91]);
+    localDrawFlowBox(ax, [0.57 0.79 0.18 0.11], '3. Explicit Flags', ...
+        {'IsPoorEfficiency', 'IsPoorPerformance', 'IsHighLoss'}, [0.99 0.93 0.88]);
+    localDrawFlowBox(ax, [0.80 0.79 0.14 0.11], '4. Candidate?', ...
+        {'Any explicit flag true?'}, [0.97 0.91 0.91]);
+
+    localDrawFlowBox(ax, [0.12 0.53 0.20 0.12], '5. Fallback Ranking', ...
+        {'If no flags trigger', 'Use worst severity', 'Top-N shortlist'}, [0.95 0.94 0.87]);
+    localDrawFlowBox(ax, [0.41 0.53 0.20 0.12], '6. Shortlist of Segments', ...
+        {'Explicit bad segments', 'or fallback worst segments'}, [0.89 0.95 0.95]);
+    localDrawFlowBox(ax, [0.70 0.53 0.20 0.12], '7. Cause Scoring', ...
+        {'Slope', 'Battery limit', 'Gear operation', 'Loss contributors'}, [0.91 0.90 0.98]);
+
+    localDrawFlowBox(ax, [0.18 0.26 0.24 0.12], '8. Root-Cause Ranking', ...
+        {'Rank contributors', 'Assign confidence', 'Capture evidence signals'}, [0.96 0.92 0.88]);
+    localDrawFlowBox(ax, [0.56 0.26 0.24 0.12], '9. BadSegmentTable Output', ...
+        {'Issue type', 'Primary cause', 'Contribution %', 'Narrative'}, [0.90 0.96 0.90]);
+
+    localDrawFlowArrow(ax, [0.25 0.845], [0.32 0.845]);
+    localDrawFlowArrow(ax, [0.50 0.845], [0.57 0.845]);
+    localDrawFlowArrow(ax, [0.75 0.845], [0.80 0.845]);
+    localDrawFlowArrow(ax, [0.87 0.79], [0.51 0.65]);
+    localDrawFlowArrow(ax, [0.22 0.79], [0.22 0.65]);
+    localDrawFlowArrow(ax, [0.32 0.59], [0.41 0.59]);
+    localDrawFlowArrow(ax, [0.61 0.59], [0.70 0.59]);
+    localDrawFlowArrow(ax, [0.80 0.53], [0.30 0.38]);
+    localDrawFlowArrow(ax, [0.52 0.53], [0.67 0.38]);
+
+    text(ax, 0.50, 0.96, 'Bad-Segment Analysis Methodology Flow', 'HorizontalAlignment', 'center', ...
+        'FontSize', 17, 'FontWeight', 'bold', 'Color', [0.10 0.10 0.10]);
+    text(ax, 0.50, 0.93, ...
+        'Decision path from segment KPI and severity flags to fallback shortlist logic, root-cause ranking, and final bad-segment reporting', ...
+        'HorizontalAlignment', 'center', 'FontSize', 10.5, 'Color', [0.25 0.25 0.25]);
+
+    exportgraphics(fig, char(figurePath), 'Resolution', 180, 'BackgroundColor', 'white');
+catch
+    figurePath = "";
+end
+
+if ~isempty(fig) && isgraphics(fig)
+    close(fig);
 end
 end
 
@@ -1316,6 +1400,72 @@ availableColumns = exampleColumns(ismember(exampleColumns, badSegmentTable.Prope
 exampleTable = badSegmentTable(1:min(8, height(badSegmentTable)), availableColumns);
 end
 
+function rows = localBuildBadSegmentEvaluationRows(reportData)
+rows = {};
+
+if height(reportData.SegmentSummary) > 0
+    segTable = reportData.SegmentSummary;
+    candidateIdx = find(segTable.IsPoorEfficiency | segTable.IsPoorPerformance | segTable.IsHighLoss, 1, 'first');
+    if isempty(candidateIdx)
+        [~, candidateIdx] = max(max([segTable.EfficiencySeverity, segTable.PerformanceSeverity], [], 2), [], 'omitnan');
+        if isempty(candidateIdx) || ~isfinite(candidateIdx)
+            candidateIdx = 1;
+        end
+    end
+    segRow = segTable(candidateIdx, :);
+
+    effTriggered = localLogicalText(localSafeTableLogical(segRow, 'IsPoorEfficiency'));
+    perfTriggered = localLogicalText(localSafeTableLogical(segRow, 'IsPoorPerformance'));
+    lossTriggered = localLogicalText(localSafeTableLogical(segRow, 'IsHighLoss'));
+    overallTriggered = localLogicalText(localSafeTableLogical(segRow, 'IsPoorEfficiency') || ...
+        localSafeTableLogical(segRow, 'IsPoorPerformance') || localSafeTableLogical(segRow, 'IsHighLoss'));
+
+    rows = { ...
+        '1. Candidate segment chosen', sprintf('Segment %d', localSafeTableValue(segRow, 'SegmentID')), ...
+        'Take one representative flagged segment; if none are flagged, take the highest-severity segment.', ...
+        sprintf('Segment %d selected for methodology illustration.', localSafeTableValue(segRow, 'SegmentID')); ...
+        '2. Efficiency check', sprintf('Wh/km = %s | EfficiencySeverity = %s', ...
+        localSafeValueText(segRow, 'Wh_per_km', '%.1f'), localSafeValueText(segRow, 'EfficiencySeverity', '%.2f')), ...
+        sprintf('Flag poor efficiency when severity exceeds configured multiplier (%s).', ...
+        localThresholdValueText(reportData, 'PoorEfficiencyMultiplier')), ...
+        sprintf('IsPoorEfficiency = %s', effTriggered); ...
+        '3. Performance check', sprintf('Tracking MAE = %s km/h | Torque tracking MAE = %s Nm', ...
+        localSafeValueText(segRow, 'TrackingMAE_kmh', '%.2f'), localSafeValueText(segRow, 'TorqueTrackingMAE_Nm', '%.1f')), ...
+        sprintf('Flag poor performance when tracking or torque-delivery severity exceeds the configured threshold basis (%s km/h poor-tracking threshold).', ...
+        localThresholdValueText(reportData, 'PoorTrackingError_kmh')), ...
+        sprintf('IsPoorPerformance = %s', perfTriggered); ...
+        '4. Loss check', sprintf('Loss share = %s %%', localSafeValueText(segRow, 'LossShare_pct', '%.1f')), ...
+        sprintf('Flag high loss when loss share exceeds %s.', localThresholdValueText(reportData, 'HighLossShare_pct')), ...
+        sprintf('IsHighLoss = %s', lossTriggered); ...
+        '5. Bad-segment shortlist decision', sprintf('Primary issue tag = %s', localSafeStringText(segRow, 'PrimaryIssueTag')), ...
+        'Shortlist the segment if any explicit flag is true; otherwise include it only through fallback worst-severity ranking.', ...
+        sprintf('Shortlisted = %s', overallTriggered)};
+
+    if height(reportData.BadSegmentTable) > 0
+        badMask = strcmp(string(reportData.BadSegmentTable.SegmentID), string(localSafeTableValue(segRow, 'SegmentID')));
+        if any(badMask)
+            badRow = reportData.BadSegmentTable(find(badMask, 1, 'first'), :);
+            rows(end + 1, :) = { ...
+                '6. Final bad-segment record', ...
+                sprintf('IssueType = %s | PrimaryCause = %s', localSafeStringText(badRow, 'IssueType'), localSafeStringText(badRow, 'PrimaryCause')), ...
+                'Store issue type, primary cause, contribution, confidence, and evidence into the bad-segment output table.', ...
+                sprintf('Recorded with contribution %s %% and confidence %s.', ...
+                localSafeValueText(badRow, 'PrimaryContribution_pct', '%.1f'), localSafeStringText(badRow, 'Confidence'))};
+        end
+    end
+end
+
+if isempty(rows)
+    rows = { ...
+        '1. Candidate segment chosen', '[Insert Segment ID]', 'Select either the first explicitly flagged segment or the highest-severity fallback segment.', 'Representative segment chosen'; ...
+        '2. Efficiency check', '[Insert Wh/km and severity]', sprintf('Compare against poor-efficiency multiplier (%s).', localThresholdValueText(reportData, 'PoorEfficiencyMultiplier')), '[Insert result]'; ...
+        '3. Performance check', '[Insert tracking metrics]', sprintf('Compare against poor-tracking basis (%s).', localThresholdValueText(reportData, 'PoorTrackingError_kmh')), '[Insert result]'; ...
+        '4. Loss check', '[Insert loss share]', sprintf('Compare against high-loss threshold (%s).', localThresholdValueText(reportData, 'HighLossShare_pct')), '[Insert result]'; ...
+        '5. Shortlist decision', '[Insert combined status]', 'If any bad flag is true, the segment enters the bad-segment shortlist.', '[Insert result]'; ...
+        '6. Final bad-segment record', '[Insert issue and primary cause]', 'Store ranked RCA outcome into the bad-segment table.', '[Insert result]'};
+end
+end
+
 function textValue = localThresholdValueText(reportData, thresholdName)
 textValue = '[Insert threshold]';
 if isempty(reportData.ThresholdTable) || height(reportData.ThresholdTable) == 0
@@ -1335,6 +1485,79 @@ if strlength(string(unitText)) > 0 && unitText ~= "-"
     textValue = sprintf('%s %s', valueText, unitText);
 else
     textValue = valueText;
+end
+end
+
+function tf = localSafeTableLogical(tableRow, variableName)
+tf = false;
+if ~istable(tableRow) || height(tableRow) == 0 || ~ismember(variableName, tableRow.Properties.VariableNames)
+    return;
+end
+raw = tableRow.(variableName);
+if iscell(raw)
+    raw = raw{1};
+end
+if islogical(raw)
+    tf = logical(raw(1));
+elseif isnumeric(raw)
+    tf = isfinite(raw(1)) && raw(1) ~= 0;
+elseif isstring(raw) || ischar(raw)
+    tf = any(strcmpi(string(raw(1)), ["true", "yes", "1"]));
+end
+end
+
+function value = localSafeTableValue(tableRow, variableName)
+value = NaN;
+if ~istable(tableRow) || height(tableRow) == 0 || ~ismember(variableName, tableRow.Properties.VariableNames)
+    return;
+end
+raw = tableRow.(variableName);
+if iscell(raw)
+    raw = raw{1};
+end
+if isnumeric(raw) || islogical(raw)
+    value = double(raw(1));
+elseif isstring(raw) || ischar(raw)
+    numericValue = str2double(string(raw(1)));
+    if ~isnan(numericValue)
+        value = numericValue;
+    end
+end
+end
+
+function textValue = localSafeValueText(tableRow, variableName, formatSpec)
+if nargin < 3 || strlength(string(formatSpec)) == 0
+    formatSpec = '%.2f';
+end
+value = localSafeTableValue(tableRow, variableName);
+if isnan(value)
+    textValue = '[n/a]';
+else
+    textValue = sprintf(char(string(formatSpec)), value);
+end
+end
+
+function textValue = localSafeStringText(tableRow, variableName)
+textValue = '[n/a]';
+if ~istable(tableRow) || height(tableRow) == 0 || ~ismember(variableName, tableRow.Properties.VariableNames)
+    return;
+end
+raw = tableRow.(variableName);
+if iscell(raw)
+    raw = raw{1};
+end
+if isstring(raw) || ischar(raw)
+    textValue = char(string(raw(1)));
+elseif isnumeric(raw) || islogical(raw)
+    textValue = num2str(raw(1));
+end
+end
+
+function textValue = localLogicalText(tf)
+if tf
+    textValue = 'Yes';
+else
+    textValue = 'No';
 end
 end
 
@@ -3000,11 +3223,12 @@ keys = { ...
     '9.3 Data Sources', '9.4 Logging Overview', '9.5 Important Assumptions', '9.6 Data Quality Checks Performed', ...
     '9.7 Known Data Limitations', '10. Analysis Methodology', '10.1 Overall RCA Workflow', ...
     '10.2 KPI Calculation Approach', '10.3 Vehicle-Level Analysis Approach', '10.4 Subsystem-Level Drill-Down Approach', ...
+    '10.0 Methodology Flow Chart', ...
     '10.5 Event-Based Segmentation Approach', '10.6 Bad Segment Detection Logic', ...
     '10.7 Correlation / Causality Logic', '10.8 Rules Used to Classify Probable Root Causes', ...
     '10.9 Confidence Ranking of Findings', '11. Vehicle-Level Assessment', ...
     '10.5.1 Segmentation Logic Illustration', '10.5.2 State Classification Rules', '10.5.3 Worked Segment Sequence Illustration', ...
-    '10.6.1 Bad Segment Detection Flow', '10.6.2 Trigger Logic and Severity Inputs', '10.6.3 Worked Example of Bad-Segment Selection', ...
+    '10.6.1 Bad Segment Detection Flow', '10.6.2 Trigger Logic and Severity Inputs', '10.6.3 Worked Example of Bad-Segment Selection', '10.6.4 Worked Evaluation Illustration', ...
     '11.1 Vehicle Speed Tracking', '11.2 Energy Consumption', '11.3 Efficiency', '11.4 Range Impact', ...
     '11.5 Performance Limitations', '11.6 Operational Anomalies', '11.7 Thermal or Environmental Impact', ...
     '11.8 Regeneration Behavior', '11.9 Auxiliary Load Influence', '11.10 Drive Cycle Sensitivity', ...
@@ -3041,11 +3265,12 @@ values = { ...
     '9.3 Datenquellen', '9.4 Logging-Übersicht', '9.5 Wichtige Annahmen', '9.6 Durchgeführte Datenqualitätsprüfungen', ...
     '9.7 Bekannte Datenbeschränkungen', '10. Analysemethodik', '10.1 Gesamter RCA-Workflow', ...
     '10.2 KPI-Berechnungsmethodik', '10.3 Ansatz der Fahrzeuganalyse', '10.4 Ansatz der Subsystem-Vertiefung', ...
+    '10.0 Flussdiagramm der Methodik', ...
     '10.5 Ereignisbasierte Segmentierung', '10.6 Logik zur Erkennung schlechter Segmente', ...
     '10.7 Korrelations- / Kausalitätslogik', '10.8 Regeln zur Einstufung wahrscheinlicher Ursachen', ...
     '10.9 Vertrauensniveau der Ergebnisse', '11. Fahrzeugbewertung', ...
     '10.5.1 Illustration der Segmentierungslogik', '10.5.2 Regeln zur Zustandsklassifikation', '10.5.3 Veranschaulichung einer Segmentfolge', ...
-    '10.6.1 Ablauf der Erkennung schlechter Segmente', '10.6.2 Triggerlogik und Schweregrad-Eingänge', '10.6.3 Veranschaulichung der Auswahl schlechter Segmente', ...
+    '10.6.1 Ablauf der Erkennung schlechter Segmente', '10.6.2 Triggerlogik und Schweregrad-Eingänge', '10.6.3 Veranschaulichung der Auswahl schlechter Segmente', '10.6.4 Veranschaulichung einer Einzelbewertung', ...
     '11.1 Fahrgeschwindigkeitsnachführung', '11.2 Energieverbrauch', '11.3 Effizienz', '11.4 Reichweiteneinfluss', ...
     '11.5 Leistungsbegrenzungen', '11.6 Betriebsanomalien', '11.7 Thermischer oder umgebungsbedingter Einfluss', ...
     '11.8 Rekuperationsverhalten', '11.9 Einfluss der Nebenverbraucher', '11.10 Sensitivität gegenüber dem Fahrzyklus', ...
