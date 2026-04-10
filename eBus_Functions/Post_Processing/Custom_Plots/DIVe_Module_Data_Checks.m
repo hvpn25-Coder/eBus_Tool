@@ -21,7 +21,7 @@ CAT = FV(2,:);
 DN = strings(size(DVN));  DN(cellfun(@(x)ischar(x)||isstring(x),DVN)) = string(DVN(cellfun(@(x)ischar(x)||isstring(x),DVN)));
 DV = strings(size(DCN));  DV(cellfun(@(x)ischar(x)||isstring(x),DCN)) = string(DCN(cellfun(@(x)ischar(x)||isstring(x),DCN)));
 
-DIVe_Mod_Data = struct; 
+DIVe_Mod_Data = struct;
 for k=1:nM
     c = CAT(k);
     DIVe_Mod_Data.(c+"_a") = join(FN(:,k),newline);
