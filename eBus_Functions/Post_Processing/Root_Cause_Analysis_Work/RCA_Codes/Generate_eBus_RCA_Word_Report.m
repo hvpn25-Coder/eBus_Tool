@@ -573,6 +573,26 @@ if strlength(matFilePath) == 0 || ~isfile(char(matFilePath))
     return;
 end
 
+workspace = load(char(matFilePath));
+postProcessingDir = fileparts(fileparts(fileparts(mfilename('fullpath'))));
+customCodeDir = fullfile(postProcessingDir, 'Custom_Codes');
+runnerPath = fullfile(customCodeDir, 'Run_Custom_PostProcessing_Codes.m');
+if ~isfolder(customCodeDir) || ~isfile(runnerPath)
+    return;
+end
+
+addpath(customCodeDir);
+cleanupPath = onCleanup(@() rmpath(customCodeDir)); %#ok<NASGU>
+try
+    [workspaceOut, ~] = Run_Custom_PostProcessing_Codes(workspace, customCodeDir, char(matFilePath));
+    if isstruct(workspaceOut) && isfield(workspaceOut, 'cDMD') && isstruct(workspaceOut.cDMD)
+        cDMD = workspaceOut.cDMD;
+    end
+catch
+    cDMD = struct();
+end
+end
+
 function configOverview = localBuildSimulationConfigOverview(results, sourceInfo)
 configOverview = struct('Available', false, 'Sections', struct([]), 'ContextNote', "");
 context = localBuildReportEvaluationContext(results, sourceInfo);
@@ -795,26 +815,6 @@ sectionDefs = struct( ...
         {'Battery Useable Energy','cfg_batt_useable_en'; 'Battery Capacity','batt_used_capacity'; 'Battery Start SoC','cfg_initial_phy_soc'; 'Battery SoH','cfg_batt_soh'; 'Battery Init Temperature','batt_init_temp'}, ...
         {'Simulation Owner','cfg_config_creator'; 'Date and Time','cfg_config_date'; 'DIVeOne','cfg_diveone_link'; 'DIVeOne Project','cfg_config_project'} ...
     });
-end
-
-workspace = load(char(matFilePath));
-postProcessingDir = fileparts(fileparts(fileparts(mfilename('fullpath'))));
-customCodeDir = fullfile(postProcessingDir, 'Custom_Codes');
-runnerPath = fullfile(customCodeDir, 'Run_Custom_PostProcessing_Codes.m');
-if ~isfolder(customCodeDir) || ~isfile(runnerPath)
-    return;
-end
-
-addpath(customCodeDir);
-cleanupPath = onCleanup(@() rmpath(customCodeDir)); %#ok<NASGU>
-try
-    [workspaceOut, ~] = Run_Custom_PostProcessing_Codes(workspace, customCodeDir, char(matFilePath));
-    if isstruct(workspaceOut) && isfield(workspaceOut, 'cDMD') && isstruct(workspaceOut.cDMD)
-        cDMD = workspaceOut.cDMD;
-    end
-catch
-    cDMD = struct();
-end
 end
 
 function executive = localBuildExecutiveSummary(reportData)
