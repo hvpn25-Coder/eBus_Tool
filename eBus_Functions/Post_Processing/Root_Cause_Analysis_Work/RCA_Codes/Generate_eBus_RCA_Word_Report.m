@@ -373,7 +373,7 @@ reportData.SubsystemResults = localGetSubsystemResults(results);
 reportData.VehicleFigureFiles = localGetVehicleFigureFiles(results);
 reportData.VehicleFigureNotes = localGetVehicleFigureNotes(results);
 reportData.ThresholdTable = localGetThresholdTable(results);
-reportData.ModuleDiagramData = localExtractModuleDiagramData(results);
+reportData.ModuleDiagramData = localExtractModuleDiagramData(results, sourceInfo);
 reportData.Executive = localBuildExecutiveSummary(reportData);
 reportData.Abbreviations = localBuildAbbreviationTable();
 reportData.SectionMap = localBuildSectionSourceMap();
@@ -537,7 +537,7 @@ else
 end
 end
 
-function moduleData = localExtractModuleDiagramData(results)
+function moduleData = localExtractModuleDiagramData(results, sourceInfo)
 moduleData = struct('Available', false, 'cDMD', struct());
 try
     if ~isempty(results) && isfield(results, 'AnalysisData') && isfield(results.AnalysisData, 'RawData') && ...
@@ -545,8 +545,50 @@ try
             isstruct(results.AnalysisData.RawData.Workspace.cDMD)
         moduleData.Available = true;
         moduleData.cDMD = results.AnalysisData.RawData.Workspace.cDMD;
+        return;
     end
 catch
+end
+
+matPath = localExtractSimulationMatPath(results);
+if strlength(string(matPath)) == 0 && nargin >= 2 && isstruct(sourceInfo) && isfield(sourceInfo, 'SourcePath')
+    matPath = string(sourceInfo.SourcePath);
+end
+
+try
+    rebuilt = localBuildModuleDiagramDataFromMat(matPath);
+    if isstruct(rebuilt) && ~isempty(fieldnames(rebuilt))
+        moduleData.Available = true;
+        moduleData.cDMD = rebuilt;
+    end
+catch
+end
+end
+
+function cDMD = localBuildModuleDiagramDataFromMat(matFilePath)
+cDMD = struct();
+matFilePath = string(matFilePath);
+if strlength(matFilePath) == 0 || ~isfile(char(matFilePath))
+    return;
+end
+
+workspace = load(char(matFilePath));
+postProcessingDir = fileparts(fileparts(fileparts(mfilename('fullpath'))));
+customCodeDir = fullfile(postProcessingDir, 'Custom_Codes');
+runnerPath = fullfile(customCodeDir, 'Run_Custom_PostProcessing_Codes.m');
+if ~isfolder(customCodeDir) || ~isfile(runnerPath)
+    return;
+end
+
+addpath(customCodeDir);
+cleanupPath = onCleanup(@() rmpath(customCodeDir)); %#ok<NASGU>
+try
+    [workspaceOut, ~] = Run_Custom_PostProcessing_Codes(workspace, customCodeDir, char(matFilePath));
+    if isstruct(workspaceOut) && isfield(workspaceOut, 'cDMD') && isstruct(workspaceOut.cDMD)
+        cDMD = workspaceOut.cDMD;
+    end
+catch
+    cDMD = struct();
 end
 end
 
