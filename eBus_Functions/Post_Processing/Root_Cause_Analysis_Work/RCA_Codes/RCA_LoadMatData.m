@@ -6,6 +6,23 @@ if nargin < 2 || isempty(config)
 end
 
 workspace = load(matFilePath);
+postProcessingDir = fileparts(fileparts(mfilename('fullpath')));
+customCodeDir = fullfile(postProcessingDir, 'Custom_Codes');
+
+if isfolder(customCodeDir)
+    addpath(customCodeDir);
+    if exist('Run_Custom_PostProcessing_Codes', 'file') == 2
+        try
+            [workspace, customCodeLog] = Run_Custom_PostProcessing_Codes(workspace, customCodeDir, matFilePath);
+        catch
+            customCodeLog = strings(0, 1);
+        end
+        if ~isempty(customCodeLog)
+            workspace.CustomCodeExecutionLog = customCodeLog;
+        end
+    end
+end
+
 inventory = whos('-file', matFilePath);
 sizeText = arrayfun(@(x) mat2str(x.size), inventory, 'UniformOutput', false);
 inventoryTable = table(string({inventory.name}'), string(sizeText(:)), [inventory.bytes]', ...
@@ -152,7 +169,6 @@ out = char(parts(end));
 end
 
 function tf = localHasTimeDataProperties(value)
-tf = false;
 try
     tf = isobject(value) && isprop(value, 'Data') && isprop(value, 'Time');
 catch

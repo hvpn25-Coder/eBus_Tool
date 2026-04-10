@@ -27,6 +27,11 @@ templateDir = resolveReportTemplateDir(fullfile(thisScriptDir, '..', 'Report_Tem
 rcaRootDir = fullfile(thisScriptDir, '..', 'Root_Cause_Analysis_Work');
 rcaCodeDir = fullfile(rcaRootDir, 'RCA_Codes');
 rcaExcelPath = fullfile(rcaRootDir, 'info', 'eBus_Model_Info.xlsx');
+customCodeDir = fullfile(thisScriptDir, '..', 'Custom_Codes');
+
+if isfolder(customCodeDir)
+    addpath(customCodeDir);
+end
 
 if ~isfile(kpiBankPath)
     error('KPI bank not found at: %s', kpiBankPath);
@@ -96,6 +101,7 @@ for iFile = 1:numFiles
     matFilePath = fullfile(selectedPath, selectedFiles{iFile});
     loadedData = load(matFilePath);
     context = loadedData;
+    context = runCustomPostProcessingScripts(context, customCodeDir, matFilePath);
 
     for iKpi = 1:numKpis
         solved = false;
@@ -584,7 +590,7 @@ for iFile = 1:numFiles
     outputPath = buildReportOutputPath(reportDirs{iFile}, templateName, data.fileLabels(iFile));
     copyfile(templatePath, outputPath, 'f');
 
-    placeholderMap = buildPlaceholderMapForFile(data.variableNames, data.resultMatrix(:, iFile));
+    placeholderMap = buildPlaceholderMapForFile(data.variableNames, data.resultMatrix(:, iFile), data.contextsByFile{iFile});
     replacePlaceholdersInDocument(outputPath, placeholderMap);
     replaceFigurePlaceholdersInReport(outputPath, data.plotConfig, ...
         data.contextsByFile{iFile}, data.fileLabels(iFile), data.colorMap);
@@ -1327,7 +1333,7 @@ suffix = char(datetime('now', 'Format', 'HHmmssSSS'));
 outPath = fullfile(targetDir, [timeStampPrefix '_' safeMatName '_' safeReportName '_' suffix ext]);
 end
 
-function placeholderMap = buildPlaceholderMapForFile(variableNames, fileValues)
+function placeholderMap = buildPlaceholderMapForFile(variableNames, fileValues, context)
 placeholderMap = containers.Map('KeyType', 'char', 'ValueType', 'char');
 for i = 1:numel(variableNames)
     varName = strtrim(string(variableNames(i)));
@@ -1346,6 +1352,167 @@ for i = 1:numel(variableNames)
     end
     value = char(valueStr);
     placeholderMap(key) = value;
+end
+
+if nargin < 3 || ~isstruct(context)
+    return;
+end
+
+placeholderMap = addContextPlaceholders(placeholderMap, context, 0, 3);
+end
+
+function context = runCustomPostProcessingScripts(context, customCodeDir, matFilePath)
+if ~isstruct(context) || strlength(string(customCodeDir)) == 0 || ~isfolder(char(string(customCodeDir)))
+    return;
+end
+
+customCodeLog = strings(0, 1);
+if exist('Run_Custom_PostProcessing_Codes', 'file') ~= 2
+    return;
+end
+
+try
+    [context, customCodeLog] = Run_Custom_PostProcessing_Codes(context, customCodeDir, matFilePath);
+catch ME
+    customCodeLog(end + 1, 1) = "Custom post-processing setup failed for " + string(matFilePath) + ...
+        ": " + string(ME.message);
+end
+
+if ~isempty(customCodeLog)
+    context.CustomCodeExecutionLog = customCodeLog;
+end
+end
+
+function placeholderMap = addContextPlaceholders(placeholderMap, context, depth, maxDepth)
+if depth > maxDepth || ~isstruct(context) || ~isscalar(context)
+    return;
+end
+
+fieldNames = fieldnames(context);
+for iField = 1:numel(fieldNames)
+    fieldName = string(fieldNames{iField});
+    fieldValue = context.(fieldNames{iField});
+    placeholderMap = addPlaceholderValueVariants(placeholderMap, fieldName, fieldValue);
+    if isstruct(fieldValue) && isscalar(fieldValue)
+        placeholderMap = addNestedContextPlaceholders(placeholderMap, fieldValue, fieldName, depth + 1, maxDepth);
+    end
+end
+end
+
+function placeholderMap = addNestedContextPlaceholders(placeholderMap, value, pathText, depth, maxDepth)
+if depth > maxDepth || ~isstruct(value) || ~isscalar(value)
+    return;
+end
+
+fieldNames = fieldnames(value);
+for iField = 1:numel(fieldNames)
+    fieldName = string(fieldNames{iField});
+    fieldValue = value.(fieldNames{iField});
+    childPath = pathText + "." + fieldName;
+    placeholderMap = addPlaceholderValueVariants(placeholderMap, childPath, fieldValue);
+    if isstruct(fieldValue) && isscalar(fieldValue)
+        placeholderMap = addNestedContextPlaceholders(placeholderMap, fieldValue, childPath, depth + 1, maxDepth);
+    end
+end
+end
+
+function placeholderMap = addPlaceholderValueVariants(placeholderMap, namePath, value)
+keys = buildContextPlaceholderKeys(namePath);
+if isempty(keys)
+    return;
+end
+
+valueText = convertContextValueToPlaceholderText(value);
+for iKey = 1:numel(keys)
+    key = char(keys(iKey));
+    if ~isKey(placeholderMap, key)
+        placeholderMap(key) = char(valueText);
+    end
+end
+end
+
+function keys = buildContextPlaceholderKeys(namePath)
+namePath = strtrim(string(namePath));
+if strlength(namePath) == 0 || ismissing(namePath)
+    keys = strings(0, 1);
+    return;
+end
+
+candidateNames = unique([namePath; replace(namePath, ".", "_")], 'stable');
+keys = strings(0, 1);
+for iName = 1:numel(candidateNames)
+    candidate = strtrim(candidateNames(iName));
+    if strlength(candidate) == 0 || ismissing(candidate)
+        continue;
+    end
+    keys(end + 1, 1) = "*" + candidate; %#ok<AGROW>
+end
+end
+
+function valueText = convertContextValueToPlaceholderText(value)
+if isempty(value)
+    valueText = "[]";
+    return;
+end
+
+if isstring(value)
+    if isscalar(value)
+        valueText = value;
+    else
+        valueText = "[" + join(reshape(value, 1, []), ", ") + "]";
+    end
+    return;
+end
+
+if ischar(value)
+    valueText = string(value);
+    return;
+end
+
+if isdatetime(value) || isduration(value) || iscategorical(value)
+    valueText = strjoin(cellstr(string(value(:).')), ", ");
+    return;
+end
+
+if isnumeric(value) || islogical(value)
+    if isscalar(value)
+        valueText = string(value);
+    elseif numel(value) <= 10
+        valueText = string(mat2str(value));
+    else
+        valueText = "[" + string(mat2str(size(value))) + " " + string(class(value)) + "]";
+    end
+    return;
+end
+
+if iscell(value)
+    if isscalar(value)
+        valueText = convertContextValueToPlaceholderText(value{1});
+    else
+        valueText = "[" + string(mat2str(size(value))) + " cell]";
+    end
+    return;
+end
+
+if istable(value) || istimetable(value)
+    valueText = "[" + string(size(value, 1)) + "x" + string(size(value, 2)) + " " + string(class(value)) + "]";
+    return;
+end
+
+if isstruct(value)
+    valueText = "[" + string(mat2str(size(value))) + " struct]";
+    return;
+end
+
+try
+    valueText = string(strtrim(evalc('disp(value)')));
+catch
+    valueText = "[" + string(mat2str(size(value))) + " " + string(class(value)) + "]";
+end
+
+valueText = regexprep(valueText, '\s+', ' ');
+if strlength(valueText) == 0 || ismissing(valueText)
+    valueText = "N.A [NA]";
 end
 end
 
