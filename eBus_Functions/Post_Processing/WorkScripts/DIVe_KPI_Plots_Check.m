@@ -24,6 +24,9 @@ updateStatusBox(statusBox, 0.05, 'Reading KPI/plot configuration...');
 thisScriptDir = fileparts(mfilename('fullpath'));
 kpiBankPath = fullfile(thisScriptDir, '..', 'KPIs_Plots', 'eBus_KPIs_Plots_Bank.xlsx');
 templateDir = resolveReportTemplateDir(fullfile(thisScriptDir, '..', 'Report_Templates'));
+rcaRootDir = fullfile(thisScriptDir, '..', 'Root_Cause_Analysis_Work');
+rcaCodeDir = fullfile(rcaRootDir, 'RCA_Codes');
+rcaExcelPath = fullfile(rcaRootDir, 'info', 'eBus_Model_Info.xlsx');
 
 if ~isfile(kpiBankPath)
     error('KPI bank not found at: %s', kpiBankPath);
@@ -197,7 +200,8 @@ end
 
 assignin('base', 'groupTables', groupTables);
 registerViewMoreLinks(groups, kpis, units, srNos, resultMatrix, resultValueMatrix, columnNames, orderedGroups, firstColHeaders, ...
-    plotConfig, contextsByFile, fileLabels, colorMap, templateDir, selectedPath, variableNames, resultsDir, kpiResultFileName, kpiBankPath);
+    plotConfig, contextsByFile, fileLabels, colorMap, templateDir, selectedPath, selectedFiles, variableNames, ...
+    resultsDir, kpiResultFileName, kpiBankPath, rcaCodeDir, rcaExcelPath);
 updateStatusBox(statusBox, 1.00, 'Execution complete.');
 printReportFolderLink(resultsDir);
 printViewMoreLink();
@@ -345,7 +349,8 @@ out = inText + string(repmat(' ', 1, padCount));
 end
 
 function registerViewMoreLinks(groups, kpis, units, srNos, resultMatrix, resultValueMatrix, columnNames, orderedGroups, firstColHeaders, ...
-    plotConfig, contextsByFile, fileLabels, colorMap, templateDir, selectedPath, variableNames, resultsDir, kpiResultFileName, kpiBankPath)
+    plotConfig, contextsByFile, fileLabels, colorMap, templateDir, selectedPath, selectedFiles, variableNames, ...
+    resultsDir, kpiResultFileName, kpiBankPath, rcaCodeDir, rcaExcelPath)
 data = struct();
 data.groups = groups;
 data.kpis = kpis;
@@ -365,15 +370,20 @@ data.colorMap = colorMap;
 data.plotGroupNames = getAvailablePlotGroups(plotConfig);
 data.templateDir = templateDir;
 data.selectedPath = selectedPath;
+data.selectedFiles = selectedFiles;
 data.resultsDir = resultsDir;
 data.kpiResultFileName = kpiResultFileName;
 data.kpiBankPath = kpiBankPath;
+data.rcaCodeDir = rcaCodeDir;
+data.rcaExcelPath = rcaExcelPath;
+data.hasRca = isfolder(char(string(rcaCodeDir))) && isfile(char(string(rcaExcelPath)));
 [data.templateNames, data.templatePaths] = getTemplateDocuments(templateDir);
 
 assignin('base', 'kpiPlotsInteractiveData', data);
 assignin('base', 'openKpiPlotsViewMore', @showKpiGroupLinks);
 assignin('base', 'openKpiGroupDetails', @showAllKpisForGroup);
 assignin('base', 'openPlotGroupDetails', @showPlotsForGroup);
+assignin('base', 'openRunRcaSelector', @showRcaSelector);
 assignin('base', 'openGenerateReportTemplate', @generateReportFromTemplate);
 end
 
@@ -388,6 +398,10 @@ fprintf('\nKPI Groups:\n');
 printHyperlinkGrid(data.orderedGroups, "openKpiGroupDetails", true);
 fprintf('\nPlots Groups:\n');
 printHyperlinkGrid(data.plotGroupNames, "openPlotGroupDetails", true);
+if isfield(data, 'hasRca') && data.hasRca
+    fprintf('\nRoot Cause Analysis:\n');
+    fprintf('  %s To Run Root Cause Analysis <a href="matlab:feval(openRunRcaSelector)">[RCA]</a>\n', char(9679));
+end
 if isfield(data, 'kpiBankPath') && strlength(string(data.kpiBankPath)) > 0 && isfile(data.kpiBankPath)
     bankPath = char(string(data.kpiBankPath));
     bankCmd = sprintf('matlab:winopen(''%s'')', escapeForMatlabCharLiteral(bankPath));
@@ -459,6 +473,72 @@ end
 plotForAllFiles(data.plotConfig, data.contextsByFile, data.fileLabels, data.colorMap, groupName, true, figSaveDirs);
 updateStatusBox(statusBox, 1.00, 'Plot-group rendering complete.');
 closeStatusBox(statusBox);
+printViewMoreLink();
+end
+
+function showRcaSelector()
+if ~evalin('base', 'exist(''kpiPlotsInteractiveData'', ''var'')')
+    fprintf('\nNo KPI/RCA data available. Run the script first.\n');
+    return;
+end
+
+data = evalin('base', 'kpiPlotsInteractiveData');
+if ~isfield(data, 'hasRca') || ~data.hasRca
+    fprintf('\nRCA assets were not found. Expected RCA code folder and workbook are missing.\n');
+    return;
+end
+if ~isfield(data, 'selectedFiles') || isempty(data.selectedFiles)
+    fprintf('\nNo MAT files are available for RCA selection.\n');
+    return;
+end
+
+[selection, ok] = listdlg( ...
+    'Name', 'Root Cause Analysis', ...
+    'PromptString', 'Select the MAT file for RCA:', ...
+    'SelectionMode', 'single', ...
+    'ListString', cellstr(string(data.fileLabels)));
+if ~ok || isempty(selection)
+    return;
+end
+
+selectedIdx = selection(1);
+matFilePath = fullfile(char(string(data.selectedPath)), data.selectedFiles{selectedIdx});
+if ~isfile(matFilePath)
+    fprintf('\nSelected MAT file was not found: %s\n', matFilePath);
+    return;
+end
+
+if ~isfield(data, 'resultsDir') || strlength(string(data.resultsDir)) == 0 || ~isfolder(data.resultsDir)
+    data.resultsDir = createDiveResultsFolder(data.selectedPath);
+    [~, fallbackFolderName] = fileparts(data.resultsDir);
+    data.kpiResultFileName = [fallbackFolderName '.xlsx'];
+    assignin('base', 'kpiPlotsInteractiveData', data);
+end
+
+reportDirs = createPerMatReportFolders(data.resultsDir, data.fileLabels);
+outputRoot = reportDirs{selectedIdx};
+if ~isfolder(outputRoot)
+    mkdir(outputRoot);
+end
+
+statusBox = initStatusBox('Preparing RCA workflow...');
+updateStatusBox(statusBox, 0.30, sprintf('Running RCA for %s', string(data.fileLabels(selectedIdx))));
+closeStatusBox(statusBox);
+
+try
+    addpath(char(string(data.rcaCodeDir)));
+    rcaResults = Vehicle_Detailed_Analysis(matFilePath, char(string(data.rcaExcelPath)), outputRoot);
+    fprintf('RCA completed successfully.\n');
+    if isstruct(rcaResults) && isfield(rcaResults, 'Paths') && isfield(rcaResults.Paths, 'Root')
+        printNamedFolderLink('RCA Folder', rcaResults.Paths.Root);
+    else
+        printNamedFolderLink('RCA Folder', outputRoot);
+    end
+catch ME
+    fprintf('\nRCA execution failed for "%s".\n', string(data.fileLabels(selectedIdx)));
+    fprintf('%s\n', ME.message);
+end
+
 printViewMoreLink();
 end
 
@@ -578,11 +658,16 @@ function printReportFolderLink(resultsDir)
 if nargin < 1 || strlength(string(resultsDir)) == 0 || ~isfolder(resultsDir)
     return;
 end
-[~, reportFolderName] = fileparts(char(string(resultsDir)));
-folderCmd = sprintf('matlab:winopen(''%s'')', escapeForMatlabCharLiteral(resultsDir));
 fprintf('\n');
-fprintf('Report Folder: <a href="%s">%s</a>\n', folderCmd, reportFolderName);
+printNamedFolderLink('Report Folder', resultsDir);
 fprintf('\n');
+end
+
+function printNamedFolderLink(labelText, folderPathIn)
+folderPath = char(string(folderPathIn));
+[~, folderName] = fileparts(folderPath);
+folderCmd = sprintf('matlab:winopen(''%s'')', escapeForMatlabCharLiteral(folderPath));
+fprintf('%s: <a href="%s">%s</a>\n', labelText, folderCmd, folderName);
 end
 
 function h = initStatusBox(initialMessage)
