@@ -1976,17 +1976,6 @@ try
 catch
 end
 
-function keys = getOrderedPlaceholderKeys(placeholderMap)
-keys = placeholderMap.keys;
-if isempty(keys)
-    return;
-end
-
-keyStrings = string(keys(:));
-[~, order] = sortrows([-strlength(keyStrings), (1:numel(keyStrings)).']);
-keys = keys(order);
-end
-
 try
     sectionCount = docObj.Sections.Count;
 catch
@@ -2023,6 +2012,17 @@ for iSection = 1:sectionCount
         end
     end
 end
+end
+
+function keys = getOrderedPlaceholderKeys(placeholderMap)
+keys = placeholderMap.keys;
+if isempty(keys)
+    return;
+end
+
+keyStrings = string(keys(:));
+[~, order] = sortrows([-strlength(keyStrings), (1:numel(keyStrings)).']);
+keys = keys(order);
 end
 
 function txt = getWordShapeText(shp)
