@@ -373,6 +373,7 @@ reportData.SubsystemResults = localGetSubsystemResults(results);
 reportData.VehicleFigureFiles = localGetVehicleFigureFiles(results);
 reportData.VehicleFigureNotes = localGetVehicleFigureNotes(results);
 reportData.ThresholdTable = localGetThresholdTable(results);
+reportData.ModuleDiagramData = localExtractModuleDiagramData(results);
 reportData.Executive = localBuildExecutiveSummary(reportData);
 reportData.Abbreviations = localBuildAbbreviationTable();
 reportData.SectionMap = localBuildSectionSourceMap();
@@ -533,6 +534,19 @@ else
         thresholdTable = RCA_Config().ThresholdTable;
     catch
     end
+end
+end
+
+function moduleData = localExtractModuleDiagramData(results)
+moduleData = struct('Available', false, 'cDMD', struct());
+try
+    if ~isempty(results) && isfield(results, 'AnalysisData') && isfield(results.AnalysisData, 'RawData') && ...
+            isfield(results.AnalysisData.RawData, 'Workspace') && isfield(results.AnalysisData.RawData.Workspace, 'cDMD') && ...
+            isstruct(results.AnalysisData.RawData.Workspace.cDMD)
+        moduleData.Available = true;
+        moduleData.cDMD = results.AnalysisData.RawData.Workspace.cDMD;
+    end
+catch
 end
 end
 
@@ -955,7 +969,18 @@ function localWriteSimulationOverviewSection(doc, selection, reportData, state)
 localAddHeading(selection, '9. Simulation and Data Overview', 1);
 
 localAddHeading(selection, '9.1 Model Overview', 2);
-selection.TypeText('The report uses the Excel workbook as the primary source of model and signal metadata, including subsystem names, signal descriptions, units, block-diagram context, and evaluation expressions. The MAT file is treated as the logged numerical evidence set.');
+selection.TypeText(['The report uses the Excel workbook as the primary source of model and signal metadata, including subsystem names, signal descriptions, units, block-diagram context, and evaluation expressions. ', ...
+    'The MAT file is treated as the logged numerical evidence set. Where available, the model overview below is generated from the custom DIVe module-data check output variable cDMD so that the report shows populated module values rather than placeholder tokens.']);
+selection.TypeParagraph;
+modelFigurePath = localCreateDiveModuleOverviewFigure(state, reportData);
+if strlength(modelFigurePath) > 0 && isfile(modelFigurePath)
+    localAddFigure(selection, state, char(modelFigurePath), ...
+        'DIVe module overview generated from custom cDMD output, showing populated module slots grouped into control, human, boundary, and physics blocks.');
+else
+    selection.TypeText('[Insert DIVe module overview diagram generated from custom cDMD output.]');
+    selection.TypeParagraph;
+end
+selection.TypeText('The module blocks reflect the custom post-processing output structure and preserve empty slots where the exported layout defines reserved space. This allows reviewers to compare module-population status directly against the expected DIVe module arrangement.');
 selection.TypeParagraph;
 
 localAddHeading(selection, '9.2 Simulation Cases / Drive Cycles / Scenarios Analyzed', 2);
@@ -1019,6 +1044,143 @@ if isempty(rows)
         'Simulation case ID', '[Insert Case]', 'Unique analysis reference'; ...
         'Drive cycle / route', '[Insert Route]', 'Context for duty-cycle severity'; ...
         'Data quality note', '[Insert Note]', 'Any known logging or signal limitation'};
+end
+end
+
+function figurePath = localCreateDiveModuleOverviewFigure(state, reportData)
+figurePath = "";
+if ~isfield(reportData, 'ModuleDiagramData') || ~isstruct(reportData.ModuleDiagramData) || ...
+        ~isfield(reportData.ModuleDiagramData, 'Available') || ~reportData.ModuleDiagramData.Available
+    return;
+end
+if ~isfield(state, 'OutputFolder') || strlength(string(state.OutputFolder)) == 0
+    return;
+end
+
+figureFolder = fullfile(char(state.OutputFolder), 'Generated_Reports_ModelOverview');
+if ~exist(figureFolder, 'dir')
+    mkdir(figureFolder);
+end
+figurePath = string(fullfile(figureFolder, sprintf('DIVe_Module_Overview_%s.png', char(reportData.Options.Language))));
+
+fig = [];
+try
+    fig = figure('Visible', 'off', 'Color', 'w', 'Position', [100 100 1800 980]);
+    ax = axes('Parent', fig, 'Position', [0 0 1 1]);
+    axis(ax, [0 1 0 1]);
+    axis(ax, 'off');
+    hold(ax, 'on');
+
+    text(ax, 0.02, 0.96, 'DIVe Module Infos', 'FontName', 'Calibri', 'FontSize', 30, ...
+        'FontWeight', 'normal', 'Color', [0.18 0.18 0.18]);
+    text(ax, 0.94, 0.50, 'Modules', 'Rotation', 90, 'FontName', 'Calibri', 'FontSize', 19, ...
+        'FontWeight', 'bold', 'HorizontalAlignment', 'center', 'Color', [0.18 0.18 0.45]);
+
+    cDMD = reportData.ModuleDiagramData.cDMD;
+    layout = localDiveLayoutSpec();
+    for iGroup = 1:numel(layout)
+        values = localExtractDiveGroupValues(cDMD, layout(iGroup).Prefix, layout(iGroup).Columns);
+        localDrawDiveGroup(ax, layout(iGroup), values);
+    end
+
+    exportgraphics(fig, char(figurePath), 'Resolution', 220, 'BackgroundColor', 'white');
+catch
+    figurePath = "";
+end
+
+try
+    if ~isempty(fig) && isgraphics(fig)
+        close(fig);
+    end
+catch
+end
+end
+
+function layout = localDiveLayoutSpec()
+layout = struct( ...
+    'Prefix', {'DC', 'DH', 'DB', 'DP'}, ...
+    'Label', {'Control', 'Human', 'Boundary', 'Physics'}, ...
+    'Columns', {15, 3, 3, 10}, ...
+    'Rows', {3, 3, 3, 3}, ...
+    'OuterPos', {[0.03 0.63 0.92 0.24], [0.03 0.45 0.26 0.11], [0.03 0.32 0.26 0.11], [0.03 0.05 0.92 0.28]}, ...
+    'GroupColor', {[0.95 0.90 0.82], [0.95 0.76 0.79], [0.78 0.89 0.98], [0.82 0.92 0.80]}, ...
+    'RowColors', {{[0.33 0.54 0.70], [0.98 0.98 0.98], [0.05 0.25 0.42]}, ...
+                  {[0.82 0.67 0.53], [0.25 0.64 0.83], [0.97 0.97 0.97]}, ...
+                  {[0.90 0.95 0.99], [0.24 0.63 0.83], [0.97 0.97 0.97]}, ...
+                  {[0.12 0.12 0.15], [0.97 0.97 0.97], [0.29 0.59 0.79]}} );
+end
+
+function values = localExtractDiveGroupValues(cDMD, prefix, colCount)
+values = strings(3, colCount);
+for iCol = 1:colCount
+    for iRow = 1:3
+        fieldName = sprintf('%s_%d_%d', prefix, iRow, iCol);
+        if isfield(cDMD, fieldName)
+            values(iRow, iCol) = string(cDMD.(fieldName));
+        else
+            values(iRow, iCol) = " ";
+        end
+    end
+end
+end
+
+function localDrawDiveGroup(ax, spec, values)
+outerPos = spec.OuterPos;
+rectangle(ax, 'Position', outerPos, 'Curvature', 0.025, 'FaceColor', spec.GroupColor, ...
+    'EdgeColor', 'none');
+text(ax, outerPos(1) - 0.012, outerPos(2) + outerPos(4)/2, spec.Label, 'Rotation', 90, ...
+    'FontName', 'Calibri', 'FontSize', 16, 'HorizontalAlignment', 'center', ...
+    'VerticalAlignment', 'middle', 'Color', [0.20 0.20 0.20]);
+
+    xPad = 0.018 * outerPos(3);
+    yPad = 0.11 * outerPos(4);
+    gapX = 0.006 * outerPos(3);
+    gapY = 0.10 * outerPos(4);
+    cellW = (outerPos(3) - 2*xPad - (spec.Columns - 1)*gapX) / spec.Columns;
+    cellH = (outerPos(4) - 2*yPad - (spec.Rows - 1)*gapY) / spec.Rows;
+
+    for iRow = 1:spec.Rows
+        for iCol = 1:spec.Columns
+            x = outerPos(1) + xPad + (iCol - 1) * (cellW + gapX);
+            y = outerPos(2) + outerPos(4) - yPad - iRow*cellH - (iRow - 1)*gapY;
+            cellColor = spec.RowColors{iRow};
+            rectangle(ax, 'Position', [x y cellW cellH], 'Curvature', 0.09, ...
+                'FaceColor', cellColor, 'EdgeColor', [1 1 1], 'LineWidth', 1.2);
+            txt = localFormatDiveBlockText(values(iRow, iCol));
+            textColor = localDiveTextColor(cellColor, txt);
+            text(ax, x + cellW/2, y + cellH/2, txt, 'FontName', 'Calibri', ...
+                'FontSize', 9.5, 'FontWeight', 'bold', 'HorizontalAlignment', 'center', ...
+                'VerticalAlignment', 'middle', 'Color', textColor, 'Interpreter', 'none');
+        end
+    end
+end
+
+function textOut = localFormatDiveBlockText(textIn)
+textOut = strtrim(char(string(textIn)));
+if isempty(textOut) || strcmp(textOut, "")
+    textOut = ' ';
+    return;
+end
+textOut = strrep(textOut, '_', '_');
+textOut = strrep(textOut, '.', sprintf('.%s', newline));
+textOut = strrep(textOut, '_', sprintf('_%s', newline));
+textOut = regexprep(textOut, sprintf('%s+', newline), newline);
+textOut = strtrim(textOut);
+if isempty(textOut)
+    textOut = ' ';
+end
+end
+
+function textColor = localDiveTextColor(cellColor, txt)
+if strlength(string(strtrim(txt))) == 0
+    textColor = [0.30 0.30 0.30];
+    return;
+end
+luma = 0.2126*cellColor(1) + 0.7152*cellColor(2) + 0.0722*cellColor(3);
+if luma < 0.45
+    textColor = [1 1 1];
+else
+    textColor = [0.12 0.12 0.12];
 end
 end
 
