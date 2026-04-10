@@ -24,13 +24,13 @@ CAT = FV(2,:);
 DN = strings(size(DVN));  DN(cellfun(@(x)ischar(x)||isstring(x),DVN)) = string(DVN(cellfun(@(x)ischar(x)||isstring(x),DVN)));
 DV = strings(size(DCN));  DV(cellfun(@(x)ischar(x)||isstring(x),DCN)) = string(DCN(cellfun(@(x)ischar(x)||isstring(x),DCN)));
 
-DIVe_Mod_Data = struct;
+cDMD = struct;
 for k=1:nM
     c = CAT(k);
-    DIVe_Mod_Data.(c+"_a") = join(FN(:,k),newline);
-    DIVe_Mod_Data.(c+"_b") = join(FV(:,k),newline);
-    DIVe_Mod_Data.(c+"_c") = join(DV(DV(:,k)~="",k),newline);
-    DIVe_Mod_Data.(c+"_d") = join(DN(DN(:,k)~="",k),newline);
+    cDMD.(c+"_a") = join(FN(:,k),newline);
+    cDMD.(c+"_b") = join(FV(:,k),newline);
+    cDMD.(c+"_c") = join(DV(DV(:,k)~="",k),newline);
+    cDMD.(c+"_d") = join(DN(DN(:,k)~="",k),newline);
 end
 
 %% Ordering
@@ -60,7 +60,7 @@ for b = 1:size(blk,1)
 
     for i = 1:size(A,2)
         for j = 1:size(A,1)
-            DIVe_Mod_Data.(blk{b,1}+"_"+j+"_"+i) = A(j,i);
+            cDMD.(blk{b,1}+"_"+j+"_"+i) = A(j,i);
         end
     end
 end
