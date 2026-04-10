@@ -1,3 +1,6 @@
+%% Put the custom calculations here
+
+
 %% Model Info (very compact)
 
 MS = sMP.cfg.Configuration.ModuleSetup;
