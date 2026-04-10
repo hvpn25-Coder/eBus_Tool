@@ -1174,27 +1174,47 @@ text(ax, outerPos(1) - 0.012, outerPos(2) + outerPos(4)/2, spec.Label, 'Rotation
     'FontName', 'Calibri', 'FontSize', 16, 'HorizontalAlignment', 'center', ...
     'VerticalAlignment', 'middle', 'Color', [0.20 0.20 0.20]);
 
-    xPad = 0.018 * outerPos(3);
-    yPad = 0.11 * outerPos(4);
-    gapX = 0.006 * outerPos(3);
-    gapY = 0.10 * outerPos(4);
-    cellW = (outerPos(3) - 2*xPad - (spec.Columns - 1)*gapX) / spec.Columns;
-    cellH = (outerPos(4) - 2*yPad - (spec.Rows - 1)*gapY) / spec.Rows;
+xPad = 0.018 * outerPos(3);
+yPad = 0.11 * outerPos(4);
+gapX = 0.010 * outerPos(3);
+gapY = 0.10 * outerPos(4);
+cellH = (outerPos(4) - 2*yPad - (spec.Rows - 1)*gapY) / spec.Rows;
 
-    for iRow = 1:spec.Rows
-        for iCol = 1:spec.Columns
-            x = outerPos(1) + xPad + (iCol - 1) * (cellW + gapX);
-            y = outerPos(2) + outerPos(4) - yPad - iRow*cellH - (iRow - 1)*gapY;
-            cellColor = spec.RowColors{iRow};
-            rectangle(ax, 'Position', [x y cellW cellH], 'Curvature', 0.09, ...
-                'FaceColor', cellColor, 'EdgeColor', [1 1 1], 'LineWidth', 1.2);
-            txt = localFormatDiveBlockText(values(iRow, iCol));
-            textColor = localDiveTextColor(cellColor, txt);
-            text(ax, x + cellW/2, y + cellH/2, txt, 'FontName', 'Calibri', ...
-                'FontSize', 9.5, 'FontWeight', 'bold', 'HorizontalAlignment', 'center', ...
-                'VerticalAlignment', 'middle', 'Color', textColor, 'Interpreter', 'none');
+for iRow = 1:spec.Rows
+    rowTexts = strings(0, 1);
+    rowWeights = [];
+    for iCol = 1:size(values, 2)
+        rawText = strtrim(string(values(iRow, iCol)));
+        if strlength(rawText) == 0
+            continue;
         end
+        rowTexts(end + 1, 1) = rawText; %#ok<AGROW>
+        rowWeights(end + 1, 1) = localDiveBlockWeight(rawText); %#ok<AGROW>
     end
+
+    if isempty(rowTexts)
+        continue;
+    end
+
+    usableWidth = outerPos(3) - 2*xPad - max(numel(rowWeights) - 1, 0) * gapX;
+    totalWeight = sum(rowWeights);
+    x = outerPos(1) + xPad;
+    y = outerPos(2) + outerPos(4) - yPad - iRow*cellH - (iRow - 1)*gapY;
+
+    for iCell = 1:numel(rowWeights)
+        cellW = usableWidth * (rowWeights(iCell) / max(totalWeight, eps));
+        cellColor = spec.RowColors{iRow};
+        rectangle(ax, 'Position', [x y cellW cellH], 'Curvature', 0.09, ...
+            'FaceColor', cellColor, 'EdgeColor', [1 1 1], 'LineWidth', 1.2);
+        txt = localFormatDiveBlockText(rowTexts(iCell));
+        textColor = localDiveTextColor(cellColor, txt);
+        text(ax, x + cellW/2, y + cellH/2, txt, 'FontName', 'Calibri', ...
+            'FontSize', localDiveFontSize(txt), 'FontWeight', 'bold', ...
+            'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle', ...
+            'Color', textColor, 'Interpreter', 'none');
+        x = x + cellW + gapX;
+    end
+end
 end
 
 function textOut = localFormatDiveBlockText(textIn)
@@ -1203,11 +1223,7 @@ if isempty(textOut) || strcmp(textOut, "")
     textOut = ' ';
     return;
 end
-textOut = strrep(textOut, '_', '_');
-textOut = strrep(textOut, '.', sprintf('.%s', newline));
-textOut = strrep(textOut, '_', sprintf('_%s', newline));
-textOut = regexprep(textOut, sprintf('%s+', newline), newline);
-textOut = strtrim(textOut);
+textOut = regexprep(textOut, '\s+', ' ');
 if isempty(textOut)
     textOut = ' ';
 end
@@ -1219,10 +1235,28 @@ if strlength(string(strtrim(txt))) == 0
     return;
 end
 luma = 0.2126*cellColor(1) + 0.7152*cellColor(2) + 0.0722*cellColor(3);
-if luma < 0.45
+if luma < 0.58
     textColor = [1 1 1];
 else
-    textColor = [0.12 0.12 0.12];
+    textColor = [0.05 0.05 0.05];
+end
+end
+
+function weight = localDiveBlockWeight(textValue)
+charCount = double(strlength(string(textValue)));
+weight = max(1.0, 0.70 + 0.06 * charCount);
+end
+
+function fontSize = localDiveFontSize(textValue)
+charCount = double(strlength(string(textValue)));
+if charCount <= 8
+    fontSize = 11;
+elseif charCount <= 14
+    fontSize = 10;
+elseif charCount <= 22
+    fontSize = 9;
+else
+    fontSize = 8.2;
 end
 end
 
