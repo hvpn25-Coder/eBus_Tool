@@ -10,19 +10,18 @@ DVN = cell(nDS,nM); DCN = DVN;
 for m=1:nM
     f = string(fieldnames(MS(m).Module)); v = string(struct2cell(MS(m).Module));
     k = 1:min(nF,numel(f)); FN(k,m)=f(k); FV(k,m)=v(k);
-    ds = MS (m).DataSet;
+    ds = MS(m).DataSet;
     if ~isempty(ds)
-       DVN(1:numel(ds),m) = {ds.variant};
-       DCN(1:numel(ds),m) = {ds.className};
-    end 
-end 
+        DVN(1:numel(ds),m) = {ds.variant};
+        DCN(1:numel(ds),m) = {ds.className};
+    end
+end
 
 CAT = FV(2,:);
 DN = strings(size(DVN));  DN(cellfun(@(x)ischar(x)||isstring(x),DVN)) = string(DVN(cellfun(@(x)ischar(x)||isstring(x),DVN)));
 DV = strings(size(DCN));  DV(cellfun(@(x)ischar(x)||isstring(x),DCN)) = string(DCN(cellfun(@(x)ischar(x)||isstring(x),DCN)));
 
 DIVe_Mod_Data = struct; 
-
 for k=1:nM
     c = CAT(k);
     DIVe_Mod_Data.(c+"_a") = join(FN(:,k),newline);
