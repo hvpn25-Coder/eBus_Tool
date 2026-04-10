@@ -1556,7 +1556,7 @@ end
 
 function replaceInTextFile(filePath, placeholderMap)
 content = fileread(filePath);
-keys = placeholderMap.keys;
+keys = getOrderedPlaceholderKeys(placeholderMap);
 for i = 1:numel(keys)
     key = keys{i};
     content = strrep(content, key, placeholderMap(key));
@@ -1576,7 +1576,7 @@ if isempty(xmlFiles)
     return;
 end
 
-keys = placeholderMap.keys;
+keys = getOrderedPlaceholderKeys(placeholderMap);
 xmlSafeValues = containers.Map('KeyType', 'char', 'ValueType', 'char');
 for i = 1:numel(keys)
     k = keys{i};
@@ -1712,7 +1712,7 @@ docObj = [];
 try
     wordApp = actxserver('Word.Application');
     docObj = wordApp.Documents.Open(docPath, false, false, false);
-    keys = placeholderMap.keys;
+    keys = getOrderedPlaceholderKeys(placeholderMap);
     for i = 1:numel(keys)
         token = string(keys{i});
         replacement = string(placeholderMap(keys{i}));
@@ -1956,7 +1956,7 @@ if strlength(rawText) == 0
 end
 
 updatedText = rawText;
-keys = placeholderMap.keys;
+keys = getOrderedPlaceholderKeys(placeholderMap);
 for i = 1:numel(keys)
     token = string(keys{i});
     value = string(placeholderMap(keys{i}));
@@ -1974,6 +1974,17 @@ shapeCollections = {};
 try
     shapeCollections{end + 1} = docObj.Shapes;
 catch
+end
+
+function keys = getOrderedPlaceholderKeys(placeholderMap)
+keys = placeholderMap.keys;
+if isempty(keys)
+    return;
+end
+
+keyStrings = string(keys(:));
+[~, order] = sortrows([-strlength(keyStrings), (1:numel(keyStrings)).']);
+keys = keys(order);
 end
 
 try
