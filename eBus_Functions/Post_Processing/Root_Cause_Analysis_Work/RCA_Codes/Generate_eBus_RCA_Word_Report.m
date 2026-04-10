@@ -374,6 +374,7 @@ reportData.VehicleFigureFiles = localGetVehicleFigureFiles(results);
 reportData.VehicleFigureNotes = localGetVehicleFigureNotes(results);
 reportData.ThresholdTable = localGetThresholdTable(results);
 reportData.ModuleDiagramData = localExtractModuleDiagramData(results, sourceInfo);
+reportData.SimulationConfigOverview = localBuildSimulationConfigOverview(results, sourceInfo);
 reportData.Executive = localBuildExecutiveSummary(reportData);
 reportData.Abbreviations = localBuildAbbreviationTable();
 reportData.SectionMap = localBuildSectionSourceMap();
@@ -570,6 +571,230 @@ cDMD = struct();
 matFilePath = string(matFilePath);
 if strlength(matFilePath) == 0 || ~isfile(char(matFilePath))
     return;
+end
+
+function configOverview = localBuildSimulationConfigOverview(results, sourceInfo)
+configOverview = struct('Available', false, 'Sections', struct([]), 'ContextNote', "");
+context = localBuildReportEvaluationContext(results, sourceInfo);
+if isempty(context)
+    return;
+end
+
+[kpiRows, ok] = localReadKpiBankRows();
+if ~ok || isempty(kpiRows)
+    return;
+end
+
+[resolvedMap, resolvedUnits] = localEvaluateKpiBankVariables(context, kpiRows);
+sectionDefs = localSimulationConfigSectionDefinitions();
+sections = repmat(struct('Title', "", 'Headers', {{}}, 'Rows', {{}}, 'AvailableCount', 0), numel(sectionDefs), 1);
+availableCount = 0;
+
+for iSection = 1:numel(sectionDefs)
+    sections(iSection).Title = sectionDefs(iSection).Title;
+    sections(iSection).Headers = sectionDefs(iSection).Headers;
+    rows = cell(size(sectionDefs(iSection).Items, 1), 2);
+    for iRow = 1:size(sectionDefs(iSection).Items, 1)
+        label = sectionDefs(iSection).Items{iRow, 1};
+        varName = string(sectionDefs(iSection).Items{iRow, 2});
+        rows{iRow, 1} = label;
+        if isKey(resolvedMap, char(varName))
+            valueText = resolvedMap(char(varName));
+            unitText = "";
+            if isKey(resolvedUnits, char(varName))
+                unitText = resolvedUnits(char(varName));
+            end
+            rows{iRow, 2} = char(localComposeConfigValue(valueText, unitText));
+            sections(iSection).AvailableCount = sections(iSection).AvailableCount + 1;
+            availableCount = availableCount + 1;
+        else
+            [directValue, directOk] = localTryEvaluateEquation(varName, context);
+            if directOk && localIsSupportedScalar(directValue)
+                rows{iRow, 2} = char(localFormatValueOnlyReport(directValue));
+                sections(iSection).AvailableCount = sections(iSection).AvailableCount + 1;
+                availableCount = availableCount + 1;
+            else
+                rows{iRow, 2} = 'Not available';
+            end
+        end
+    end
+    sections(iSection).Rows = rows;
+end
+
+configOverview.Available = availableCount > 0;
+configOverview.Sections = sections;
+configOverview.ContextNote = "Configuration values are resolved from the KPI bank variable definitions against the loaded simulation run context.";
+end
+
+function context = localBuildReportEvaluationContext(results, sourceInfo)
+context = struct();
+try
+    if ~isempty(results) && isfield(results, 'AnalysisData') && isfield(results.AnalysisData, 'RawData') && ...
+            isfield(results.AnalysisData.RawData, 'Workspace') && isstruct(results.AnalysisData.RawData.Workspace)
+        context = results.AnalysisData.RawData.Workspace;
+        return;
+    end
+catch
+end
+
+matPath = localExtractSimulationMatPath(results);
+if strlength(string(matPath)) == 0 && nargin >= 2 && isstruct(sourceInfo) && isfield(sourceInfo, 'SourcePath')
+    matPath = string(sourceInfo.SourcePath);
+end
+if strlength(string(matPath)) == 0 || ~isfile(char(matPath))
+    return;
+end
+
+try
+    context = load(char(matPath));
+    postProcessingDir = fileparts(fileparts(fileparts(mfilename('fullpath'))));
+    customCodeDir = fullfile(postProcessingDir, 'Custom_Codes');
+    runnerPath = fullfile(customCodeDir, 'Run_Custom_PostProcessing_Codes.m');
+    if isfolder(customCodeDir) && isfile(runnerPath)
+        addpath(customCodeDir);
+        cleanupPath = onCleanup(@() rmpath(customCodeDir)); %#ok<NASGU>
+        [context, ~] = Run_Custom_PostProcessing_Codes(context, customCodeDir, char(matPath));
+    end
+catch
+    context = struct();
+end
+end
+
+function [kpiRows, ok] = localReadKpiBankRows()
+kpiRows = table();
+ok = false;
+try
+    postProcessingDir = fileparts(fileparts(fileparts(mfilename('fullpath'))));
+    kpiBankPath = fullfile(postProcessingDir, 'KPIs_Plots', 'eBus_KPIs_Plots_Bank.xlsx');
+    if ~isfile(kpiBankPath)
+        return;
+    end
+    kpiRows = readtable(kpiBankPath, 'Sheet', 'KPIs', 'VariableNamingRule', 'preserve', 'TextType', 'string');
+    ok = true;
+catch
+    kpiRows = table();
+    ok = false;
+end
+end
+
+function [resolvedMap, resolvedUnits] = localEvaluateKpiBankVariables(context, kpiRows)
+resolvedMap = containers.Map('KeyType', 'char', 'ValueType', 'any');
+resolvedUnits = containers.Map('KeyType', 'char', 'ValueType', 'any');
+if isempty(kpiRows) || height(kpiRows) == 0
+    return;
+end
+
+eqCols = string(kpiRows.Properties.VariableNames);
+eqCols = eqCols(startsWith(eqCols, "KPI Equation"));
+if isempty(eqCols) || ~ismember("Variable Name", string(kpiRows.Properties.VariableNames))
+    return;
+end
+
+workingContext = context;
+for iRow = 1:height(kpiRows)
+    varName = strtrim(string(kpiRows.("Variable Name")(iRow)));
+    if strlength(varName) == 0
+        continue;
+    end
+
+    solved = false;
+    solvedValue = [];
+    for iEq = 1:numel(eqCols)
+        eqText = strtrim(string(kpiRows{iRow, eqCols(iEq)}));
+        if strlength(eqText) == 0 || ismissing(eqText)
+            continue;
+        end
+        [candidateValue, ok] = localTryEvaluateEquation(eqText, workingContext);
+        if ~ok || ~localIsSupportedScalar(candidateValue)
+            continue;
+        end
+        solved = true;
+        solvedValue = candidateValue;
+        break;
+    end
+
+    if solved && isvarname(char(varName))
+        workingContext.(char(varName)) = solvedValue;
+        resolvedMap(char(varName)) = localFormatValueOnlyReport(candidateValueOrValue(solvedValue));
+        if ismember("Unit", string(kpiRows.Properties.VariableNames))
+            resolvedUnits(char(varName)) = strtrim(string(kpiRows.("Unit")(iRow)));
+        else
+            resolvedUnits(char(varName)) = "";
+        end
+    end
+end
+end
+
+function outValue = candidateValueOrValue(value)
+outValue = value;
+end
+
+function [value, ok] = localTryEvaluateEquation(eqText, context)
+value = [];
+ctxNames = fieldnames(context);
+for iName = 1:numel(ctxNames)
+    varName = ctxNames{iName};
+    if isvarname(varName)
+        eval([varName ' = context.(varName);']); %#ok<EVLDIR>
+    end
+end
+try
+    value = eval(char(eqText)); %#ok<EVLDIR>
+    ok = true;
+catch
+    ok = false;
+end
+end
+
+function tf = localIsSupportedScalar(value)
+if isnumeric(value) || islogical(value)
+    tf = isscalar(value) && isfinite(double(value));
+    return;
+end
+if isstring(value)
+    tf = isscalar(value) && strlength(value) > 0;
+    return;
+end
+if ischar(value)
+    tf = ~isempty(value);
+    return;
+end
+tf = false;
+end
+
+function textValue = localFormatValueOnlyReport(value)
+if isnumeric(value) || islogical(value)
+    textValue = string(sprintf('%.2f', double(value)));
+elseif isstring(value)
+    textValue = value;
+elseif ischar(value)
+    textValue = string(value);
+else
+    textValue = "N.A";
+end
+end
+
+function textValue = localComposeConfigValue(valueText, unitText)
+valueText = string(valueText);
+unitText = strtrim(string(unitText));
+if strlength(unitText) == 0 || ismissing(unitText)
+    textValue = valueText;
+else
+    textValue = valueText + " " + unitText;
+end
+end
+
+function sectionDefs = localSimulationConfigSectionDefinitions()
+sectionDefs = struct( ...
+    'Title', {'Vehicle', 'Environment', 'Software, Parameters', 'Battery', 'Simulation'}, ...
+    'Headers', {{'Vehicle', 'eBus'}, {'Environment', 'eBus'}, {'Software, Parameters', 'Value'}, {'Battery', 'Value'}, {'Simulation', 'Value'}}, ...
+    'Items', { ...
+        {'Vehicle','cfg_veh'; 'Propulsion','cfg_veh_propulsion'; 'Battery','cfg_veh_battery'; 'Axle','cfg_veh_drv_axle'; 'Driver','veh_driver'; 'HPR','cfg_veh_hpr'; 'Charging','cfg_veh_charging'; 'Fuel Cell','cfg_veh_fuelCell'}, ...
+        {'Route','cfg_veh_route'; 'Reference Temperature','cfg_ambient_temperature'; 'Target Distance','cfg_target_distance'}, ...
+        {'Drive Program','cfg_cpc_drv_prg'; 'Software (cpc)','cfg_cpc_ver'; 'Parameters (par)','cfg_cpc_par_file'; 'Parameters (cds)','cfg_cpc_cds_file'}, ...
+        {'Battery Useable Energy','cfg_batt_useable_en'; 'Battery Capacity','batt_used_capacity'; 'Battery Start SoC','cfg_initial_phy_soc'; 'Battery SoH','cfg_batt_soh'; 'Battery Init Temperature','batt_init_temp'}, ...
+        {'Simulation Owner','cfg_config_creator'; 'Date and Time','cfg_config_date'; 'DIVeOne','cfg_diveone_link'; 'DIVeOne Project','cfg_config_project'} ...
+    });
 end
 
 workspace = load(char(matFilePath));
@@ -1026,10 +1251,17 @@ selection.TypeText('The module blocks reflect the custom post-processing output 
 selection.TypeParagraph;
 
 localAddHeading(selection, '9.2 Simulation Cases / Drive Cycles / Scenarios Analyzed', 2);
-if state.UseActualData
-    selection.TypeText(char(reportData.RunSourceText));
+selection.TypeText(['This subsection summarizes the simulation configuration associated with the current run. ', ...
+    'The values below are resolved from the KPI-bank variable definitions against the loaded simulation context, so the report reflects the same configuration interpretation used in the DIVe KPI workflow.']);
+selection.TypeParagraph;
+if isfield(reportData, 'SimulationConfigOverview') && isstruct(reportData.SimulationConfigOverview) && reportData.SimulationConfigOverview.Available
+    for iSection = 1:numel(reportData.SimulationConfigOverview.Sections)
+        configSection = reportData.SimulationConfigOverview.Sections(iSection);
+        localAddWordTable(doc, selection, sprintf('%s simulation configuration overview', configSection.Title), ...
+            configSection.Headers, configSection.Rows);
+    end
 else
-    selection.TypeText('[Insert simulation case description, route name, drive cycle, loading condition, ambient condition, and any variant identifiers.]');
+    selection.TypeText('[Insert simulation configuration overview resolved from KPI-bank variables such as cfg_veh, cfg_veh_route, cfg_batt_useable_en, and cfg_config_creator.]');
 end
 selection.TypeParagraph;
 
