@@ -105,6 +105,7 @@ latestFile = string(fullfile(candidates(idx).folder, candidates(idx).name));
 end
 
 function sections = localBuildSections(results)
+try
 sections = localEmptySections();
 
 sections(end + 1) = localSection('1. Info', localInfoText(results), localInfoTable(results), strings(0, 1));
@@ -132,6 +133,30 @@ sections(end + 1) = localSection('Appendix - Extraction Log', ...
     'Signal and specification extraction messages, including fallback resolution notes and workbook-evaluation limitations.', ...
     localTopTable(localGetTable(results, 'ExtractionLog'), 200), strings(0, 1));
 sections(1) = [];
+catch sectionException
+    sections = localBuildFallbackSections(results, sectionException);
+end
+end
+
+function sections = localBuildFallbackSections(results, sectionException)
+sections = localEmptySections();
+errorText = sprintf(['The GUI could not build the full Table of Contents from the RCA results structure.\n\n', ...
+    'The GUI is showing a fallback view so the main RCA evidence remains accessible.\n\n', ...
+    'Failure point: %s\nIdentifier: %s'], sectionException.message, sectionException.identifier);
+sections(end + 1) = localSection('GUI Startup Warning', errorText, table(), strings(0, 1));
+sections(end + 1) = localSection('Vehicle KPI', 'Fallback vehicle KPI table.', localTopTable(localGetTable(results, 'VehicleKPI'), 200), localVehicleFigures(results, strings(0, 1)));
+sections(end + 1) = localSection('Segment Summary', 'Fallback segment summary table.', localTopTable(localGetTable(results, 'SegmentSummary'), 200), strings(0, 1));
+sections(end + 1) = localSection('Root Cause Ranking', 'Fallback root-cause ranking table.', localTopTable(localGetTable(results, 'RootCauseRanking'), 200), strings(0, 1));
+sections(end + 1) = localSection('Signal Availability', 'Fallback signal availability table.', localTrimSignalTable(localGetTable(results, 'SignalPresence')), strings(0, 1));
+subsystems = localGetSubsystems(results);
+for iSub = 1:numel(subsystems)
+    try
+        sub = subsystems(iSub);
+        titleText = sprintf('Subsystem - %s', char(localPrettyName(sub.Name)));
+        sections(end + 1) = localSection(titleText, localSubsystemText(sub), localTopTable(localSubsystemKPI(sub), 120), localExistingFiles(string(sub.FigureFiles(:)))); %#ok<AGROW>
+    catch
+    end
+end
 end
 
 function sections = localEmptySections()
