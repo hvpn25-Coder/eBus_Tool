@@ -47,6 +47,7 @@ localUpdateProgressBar(progressState, 4, totalSteps, 'Aligning signals to refere
 [signals, referenceInfo] = RCA_AlignSignalStore(signals, rawData, config, metadata.TimeSignalNames);
 localUpdateProgressBar(progressState, 5, totalSteps, 'Building derived signals');
 derived = RCA_BuildDerivedSignals(signals, specs, referenceInfo, config);
+derived = localAttachRunContextMetrics(derived, rawData);
 localUpdateProgressBar(progressState, 6, totalSteps, 'Creating trip segments');
 segments = RCA_CreateSegments(derived, config);
 localUpdateProgressBar(progressState, 7, totalSteps, 'Computing vehicle KPI');
@@ -168,6 +169,75 @@ for iPath = 1:numel(paths)
     if ~exist(paths{iPath}, 'dir')
         mkdir(paths{iPath});
     end
+end
+end
+
+function derived = localAttachRunContextMetrics(derived, rawData)
+derived.targetDistance_km = NaN;
+derived.targetDistanceSource = "";
+if nargin < 2 || ~isstruct(rawData) || ~isfield(rawData, 'Workspace') || ~isstruct(rawData.Workspace)
+    return;
+end
+
+[targetDistance, sourceName] = localResolveWorkspaceScalar(rawData.Workspace, ...
+    {'cfg_target_distance', 'target_distance', 'targetDistance', 'cfgTargetDistance', 'targetDist'});
+if ~isfinite(targetDistance)
+    return;
+end
+
+targetDistance_km = targetDistance;
+actualDistance_km = NaN;
+if isfield(derived, 'tripDistance_km')
+    actualDistance_km = derived.tripDistance_km;
+end
+
+% Configuration distances may be exported in m or km. Convert obvious
+% metre-scale values so target-vs-actual KPI remain physically meaningful.
+if abs(targetDistance_km) > 1000 && (isnan(actualDistance_km) || actualDistance_km < 1000)
+    targetDistance_km = targetDistance_km / 1000;
+elseif isfinite(actualDistance_km) && actualDistance_km > 0 && abs(targetDistance_km) > 10 * actualDistance_km
+    targetDistance_km = targetDistance_km / 1000;
+end
+
+derived.targetDistance_km = targetDistance_km;
+derived.targetDistanceSource = sourceName;
+end
+
+function [value, sourceName] = localResolveWorkspaceScalar(workspace, candidateNames)
+value = NaN;
+sourceName = "";
+for iName = 1:numel(candidateNames)
+    name = char(candidateNames{iName});
+    [candidateValue, ok] = localTryEvaluateWorkspaceExpression(workspace, name);
+    if ok && isnumeric(candidateValue) && isscalar(candidateValue) && isfinite(double(candidateValue))
+        value = double(candidateValue);
+        sourceName = string(name);
+        return;
+    end
+end
+end
+
+function [value, ok] = localTryEvaluateWorkspaceExpression(workspace, expressionText)
+value = [];
+ok = false;
+if ~isstruct(workspace) || strlength(string(expressionText)) == 0
+    return;
+end
+
+workspaceFields = fieldnames(workspace);
+for iField = 1:numel(workspaceFields)
+    fieldName = workspaceFields{iField};
+    if isvarname(fieldName)
+        eval([fieldName ' = workspace.(fieldName);']); %#ok<EVLDIR>
+    end
+end
+
+try
+    value = eval(char(expressionText)); %#ok<EVLDIR>
+    ok = true;
+catch
+    value = [];
+    ok = false;
 end
 end
 

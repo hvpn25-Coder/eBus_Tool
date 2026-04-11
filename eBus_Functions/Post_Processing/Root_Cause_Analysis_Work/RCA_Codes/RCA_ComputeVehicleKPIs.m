@@ -15,6 +15,21 @@ rows = RCA_AddKPI(rows, 'Average Speed', mean(derived.vehVel_kmh, 'omitnan'), 'k
 rows = RCA_AddKPI(rows, 'Peak Speed', max(derived.vehVel_kmh, [], 'omitnan'), 'km/h', 'DriveCycle', 'Vehicle', 'veh_vel', 'Trip peak vehicle speed.');
 rows = RCA_AddKPI(rows, 'Stop Time Share', stopShare, '%', 'DriveCycle', 'Vehicle', 'veh_vel', 'Stop threshold is defined in RCA_Config.');
 
+if isfield(derived, 'targetDistance_km') && isfinite(derived.targetDistance_km) && derived.targetDistance_km > 0
+    targetDistance = derived.targetDistance_km;
+    distanceError = tripDistance - targetDistance;
+    distanceErrorAbs = abs(distanceError);
+    distanceErrorPct = 100 * distanceErrorAbs / max(abs(targetDistance), eps);
+    sourceText = 'cfg_target_distance + trip distance';
+    if isfield(derived, 'targetDistanceSource') && strlength(string(derived.targetDistanceSource)) > 0
+        sourceText = sprintf('%s + trip distance', char(string(derived.targetDistanceSource)));
+    end
+    rows = RCA_AddKPI(rows, 'Target Distance', targetDistance, 'km', 'Performance', 'Vehicle', sourceText, 'Target distance from run configuration; unit normalized to km when required.');
+    rows = RCA_AddKPI(rows, 'Target-Actual Distance Error', distanceError, 'km', 'Performance', 'Vehicle', sourceText, 'Actual trip distance minus configured target distance.');
+    rows = RCA_AddKPI(rows, 'Absolute Distance Error', distanceErrorAbs, 'km', 'Performance', 'Vehicle', sourceText, 'Absolute difference between configured target distance and achieved trip distance.');
+    rows = RCA_AddKPI(rows, 'Distance Error Percentage', distanceErrorPct, '%', 'Performance', 'Vehicle', sourceText, 'Absolute distance error normalized by configured target distance.');
+end
+
 if ~all(isnan(derived.speedDemand_kmh))
     speedErr = derived.speedDemand_kmh - derived.vehVel_kmh;
     validSpeedErr = isfinite(speedErr);

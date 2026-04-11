@@ -8,25 +8,48 @@ plotNotes = strings(0, 1);
 
 fig = figure('Color', 'w', 'Position', config.Plot.FigurePosition);
 subplot(2, 1, 1);
-plot(t, derived.vehVel_kmh, 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth); hold on;
+yyaxis left;
+hSpeed = plot(t, derived.vehVel_kmh, 'Color', config.Plot.Colors.Vehicle, 'LineWidth', config.Plot.LineWidth); hold on;
+legendHandles = hSpeed;
+legendLabels = {'Vehicle speed'};
 if ~all(isnan(derived.speedDemand_kmh))
-    plot(t, derived.speedDemand_kmh, '--', 'Color', config.Plot.Colors.Demand, 'LineWidth', config.Plot.LineWidth);
-    legend({'Vehicle speed', 'Desired speed'}, 'Location', 'best');
+    hDemand = plot(t, derived.speedDemand_kmh, '--', 'Color', config.Plot.Colors.Demand, 'LineWidth', config.Plot.LineWidth);
+    legendHandles(end + 1) = hDemand; %#ok<AGROW>
+    legendLabels{end + 1} = 'Desired speed'; %#ok<AGROW>
+end
+ylabel('Speed (km/h)');
+if isfield(derived, 'roadSlope_pct') && ~all(isnan(derived.roadSlope_pct))
+    yyaxis right;
+    hSlope = plot(t, derived.roadSlope_pct, ':', 'Color', config.Plot.Colors.Slope, 'LineWidth', config.Plot.LineWidth);
+    ylabel('Road slope (%)');
+    legendHandles(end + 1) = hSlope; %#ok<AGROW>
+    legendLabels{end + 1} = 'Road slope'; %#ok<AGROW>
+    yyaxis left;
 end
 title('Vehicle Speed Tracking');
-ylabel('Speed (km/h)');
+legend(legendHandles, legendLabels, 'Location', 'best');
 grid on;
 
 subplot(2, 1, 2);
-plot(t, derived.vehicleAcceleration_mps2, 'Color', config.Plot.Colors.Motor, 'LineWidth', config.Plot.LineWidth); hold on;
-plot(t, derived.roadSlope_pct, '--', 'Color', config.Plot.Colors.Slope, 'LineWidth', config.Plot.LineWidth);
-title('Acceleration and Road Slope');
+yyaxis left;
+hAcc = plot(t, derived.vehicleAcceleration_mps2, 'Color', config.Plot.Colors.Motor, 'LineWidth', config.Plot.LineWidth); hold on;
+ylabel('Acceleration (m/s^2)');
+legendHandles = hAcc;
+legendLabels = {'Acceleration'};
+if isfield(derived, 'gearNumber') && ~all(isnan(derived.gearNumber))
+    yyaxis right;
+    hGear = stairs(t, derived.gearNumber, 'Color', config.Plot.Colors.Gear, 'LineWidth', config.Plot.LineWidth);
+    ylabel('Current gear (-)');
+    legendHandles(end + 1) = hGear; %#ok<AGROW>
+    legendLabels{end + 1} = 'Current gear'; %#ok<AGROW>
+    yyaxis left;
+end
+title('Acceleration and Current Gear');
 xlabel('Time (s)');
-ylabel('Acc (m/s^2) / Slope (%)');
-legend({'Acceleration', 'Road slope'}, 'Location', 'best');
+legend(legendHandles, legendLabels, 'Location', 'best');
 grid on;
 plotFiles(end + 1) = string(RCA_SaveFigure(fig, outputPaths.FiguresVehicle, 'Vehicle_Speed_Tracking', config));
-plotNotes(end + 1) = "Speed tracking plot compares demanded and delivered vehicle response and contextualizes response with acceleration and slope.";
+plotNotes(end + 1) = "Speed tracking plot compares demanded and delivered vehicle response and contextualizes response with road slope, acceleration, and current gear.";
 close(fig);
 
 fig = figure('Color', 'w', 'Position', config.Plot.FigurePosition);
