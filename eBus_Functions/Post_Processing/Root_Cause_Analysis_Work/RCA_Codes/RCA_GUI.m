@@ -1,0 +1,522 @@
+function fig = RCA_GUI(resultsInput)
+% RCA_GUI  Fast MATLAB GUI viewer for eBus RCA results.
+%
+% Usage:
+%   RCA_GUI(RCA_Results)
+%   RCA_GUI([])
+%   RCA_GUI('C:\path\to\RCA_Results.mat')
+%
+% The GUI uses only base MATLAB graphics/uicontrols. It is intended as a
+% fast review surface for the same RCA evidence that is later written to the
+% Word report: narratives, KPI tables, segment/root-cause tables, subsystem
+% results, and saved figures.
+
+if nargin < 1
+    resultsInput = [];
+end
+
+results = localResolveResults(resultsInput);
+sections = localBuildSections(results);
+
+screenSize = get(0, 'ScreenSize');
+figWidth = max(1100, min(1500, screenSize(3) * 0.88));
+figHeight = max(700, min(950, screenSize(4) * 0.82));
+figLeft = max(20, (screenSize(3) - figWidth) / 2);
+figBottom = max(40, (screenSize(4) - figHeight) / 2);
+
+fig = figure('Name', 'eBus RCA GUI', 'NumberTitle', 'off', 'Color', 'w', ...
+    'MenuBar', 'none', 'ToolBar', 'figure', 'Units', 'pixels', ...
+    'Position', [figLeft figBottom figWidth figHeight]);
+
+leftPanel = uipanel('Parent', fig, 'Title', 'Table of Contents', ...
+    'Units', 'normalized', 'Position', [0.00 0.00 0.20 1.00], ...
+    'BackgroundColor', [0.95 0.97 0.99], 'FontWeight', 'bold');
+rightPanel = uipanel('Parent', fig, 'Title', 'RCA Content', ...
+    'Units', 'normalized', 'Position', [0.205 0.00 0.795 1.00], ...
+    'BackgroundColor', 'w', 'FontWeight', 'bold');
+
+sectionTitles = cellstr(string({sections.Title}'));
+uicontrol('Parent', leftPanel, 'Style', 'listbox', ...
+    'Units', 'normalized', 'Position', [0.03 0.06 0.94 0.90], ...
+    'String', sectionTitles, 'Value', 1, 'FontName', 'Calibri', ...
+    'FontSize', 10, 'BackgroundColor', 'w', ...
+    'Callback', @(src, ~) localRenderSection(rightPanel, sections(src.Value)));
+uicontrol('Parent', leftPanel, 'Style', 'pushbutton', 'String', 'Open Output Folder', ...
+    'Units', 'normalized', 'Position', [0.03 0.015 0.94 0.035], ...
+    'Callback', @(~, ~) localOpenOutputFolder(results));
+
+localRenderSection(rightPanel, sections(1));
+if nargout == 0
+    clear fig
+end
+end
+
+function results = localResolveResults(resultsInput)
+results = [];
+if isempty(resultsInput)
+    try
+        if evalin('base', 'exist(''RCA_Results'', ''var'')')
+            results = evalin('base', 'RCA_Results');
+        end
+    catch
+    end
+elseif isstruct(resultsInput)
+    results = resultsInput;
+elseif ischar(resultsInput) || isstring(resultsInput)
+    loaded = load(char(resultsInput));
+    if isfield(loaded, 'results')
+        results = loaded.results;
+    elseif isfield(loaded, 'RCA_Results')
+        results = loaded.RCA_Results;
+    end
+end
+
+if isempty(results) || ~isstruct(results)
+    latestFile = localFindLatestResultsFile();
+    if strlength(latestFile) > 0
+        loaded = load(char(latestFile));
+        if isfield(loaded, 'results')
+            results = loaded.results;
+        elseif isfield(loaded, 'RCA_Results')
+            results = loaded.RCA_Results;
+        end
+    end
+end
+
+if isempty(results) || ~isstruct(results) || ~isfield(results, 'VehicleKPI')
+    error('RCA_GUI:MissingResults', ...
+        'Could not resolve RCA results. Run Vehicle_Detailed_Analysis first or pass RCA_Results / RCA_Results.mat.');
+end
+end
+
+function latestFile = localFindLatestResultsFile()
+latestFile = "";
+rootFolder = fullfile(fileparts(mfilename('fullpath')), '..');
+try
+    candidates = dir(fullfile(rootFolder, '**', 'RCA_Results.mat'));
+catch
+    candidates = [];
+end
+if isempty(candidates)
+    return;
+end
+[~, idx] = max([candidates.datenum]);
+latestFile = string(fullfile(candidates(idx).folder, candidates(idx).name));
+end
+
+function sections = localBuildSections(results)
+sections = localEmptySections();
+
+sections(end + 1) = localSection('1. Info', localInfoText(results), localInfoTable(results), strings(0, 1));
+sections(end + 1) = localSection('2. Technical Summary', localTechnicalSummaryText(results), localTopTable(results.VehicleKPI, 18), localVehicleFigures(results, {'Vehicle_Energy_Flow_Diagram'}));
+sections(end + 1) = localSection('3. Simulation and Data Overview', localSimulationText(results), localTopTable(localGetTable(results, 'MatInventory'), 30), localVehicleFigures(results, {'Vehicle_Speed_Tracking'}));
+sections(end + 1) = localSection('4. Signal Availability', localSignalText(results), localTrimSignalTable(localGetTable(results, 'SignalPresence')), strings(0, 1));
+sections(end + 1) = localSection('5. Analysis Methodology', localMethodologyText(results), localTopTable(localGetThresholdTable(results), 30), localVehicleFigures(results, {'Vehicle_Power_Balance', 'Vehicle_Force_Balance'}));
+sections(end + 1) = localSection('6. Vehicle-Level Assessment', localJoinLines(localGetStringVector(results, 'VehicleNarrative')), localTopTable(localGetTable(results, 'VehicleKPI'), 60), localVehicleFigures(results, strings(0, 1)));
+sections(end + 1) = localSection('7. Segment Summary', 'Segment-level KPI and operating-context table generated by the RCA segmentation workflow.', localTopTable(localGetTable(results, 'SegmentSummary'), 200), localVehicleFigures(results, {'Vehicle_Segment_Ranking'}));
+sections(end + 1) = localSection('8. Bad Segments and Root Cause Ranking', localJoinLines(localGetStringVector(results, 'RootCauseNarrative')), localTopTable(localGetTable(results, 'RootCauseRanking'), 200), localVehicleFigures(results, {'WorstSegment_', 'Driver_Bad_Segments'}));
+sections(end + 1) = localSection('9. Recommendations', 'Prioritized engineering actions generated from the vehicle and subsystem RCA evidence.', localTopTable(localGetTable(results, 'OptimizationTable'), 100), strings(0, 1));
+
+subsystems = localGetSubsystems(results);
+for iSub = 1:numel(subsystems)
+    sub = subsystems(iSub);
+    titleText = sprintf('Subsystem - %s', char(localPrettyName(sub.Name)));
+    textValue = localSubsystemText(sub);
+    sections(end + 1) = localSection(titleText, textValue, localTopTable(localSubsystemKPI(sub), 120), localExistingFiles(string(sub.FigureFiles(:)))); %#ok<AGROW>
+end
+
+sections(end + 1) = localSection('Appendix - Detailed Signal List', ...
+    'Detailed signal list from workbook-driven presence checking. Columns removed here match the streamlined Word appendix view.', ...
+    localTrimSignalTable(localGetTable(results, 'SignalPresence')), strings(0, 1));
+sections(end + 1) = localSection('Appendix - Extraction Log', ...
+    'Signal and specification extraction messages, including fallback resolution notes and workbook-evaluation limitations.', ...
+    localTopTable(localGetTable(results, 'ExtractionLog'), 200), strings(0, 1));
+sections(1) = [];
+end
+
+function sections = localEmptySections()
+sections = repmat(struct('Title', "", 'Text', "", 'Table', table(), 'Figures', strings(0, 1)), 1, 1);
+sections(1) = [];
+end
+
+function section = localSection(titleText, bodyText, tableValue, figureFiles)
+section = struct();
+section.Title = string(titleText);
+section.Text = string(bodyText);
+if istable(tableValue)
+    section.Table = tableValue;
+else
+    section.Table = table();
+end
+section.Figures = localExistingFiles(string(figureFiles(:)));
+end
+
+function localRenderSection(parentPanel, section)
+delete(get(parentPanel, 'Children'));
+
+uicontrol('Parent', parentPanel, 'Style', 'text', 'String', char(section.Title), ...
+    'Units', 'normalized', 'Position', [0.02 0.94 0.96 0.045], ...
+    'HorizontalAlignment', 'left', 'BackgroundColor', 'w', ...
+    'FontName', 'Calibri', 'FontSize', 15, 'FontWeight', 'bold');
+
+uicontrol('Parent', parentPanel, 'Style', 'edit', 'String', char(section.Text), ...
+    'Units', 'normalized', 'Position', [0.02 0.72 0.96 0.20], ...
+    'HorizontalAlignment', 'left', 'Max', 10, 'Min', 0, ...
+    'Enable', 'inactive', 'BackgroundColor', [0.98 0.98 0.98], ...
+    'FontName', 'Calibri', 'FontSize', 10);
+
+if istable(section.Table) && height(section.Table) > 0
+    [tableData, columnNames] = localTableForUi(section.Table);
+else
+    tableData = {'No table available for this section.'};
+    columnNames = {'Information'};
+end
+uitable('Parent', parentPanel, 'Data', tableData, 'ColumnName', columnNames, ...
+    'Units', 'normalized', 'Position', [0.02 0.38 0.96 0.31], ...
+    'FontName', 'Calibri', 'FontSize', 9, 'RowName', []);
+
+if ~isempty(section.Figures)
+    popup = uicontrol('Parent', parentPanel, 'Style', 'popupmenu', ...
+        'String', cellstr(localFigureLabels(section.Figures)), ...
+        'Units', 'normalized', 'Position', [0.02 0.335 0.58 0.035], ...
+        'FontName', 'Calibri', 'FontSize', 9);
+    ax = axes('Parent', parentPanel, 'Units', 'normalized', 'Position', [0.04 0.04 0.72 0.27]);
+    uicontrol('Parent', parentPanel, 'Style', 'pushbutton', 'String', 'Open Figure Window', ...
+        'Units', 'normalized', 'Position', [0.62 0.335 0.18 0.035], ...
+        'Callback', @(~, ~) localOpenFigureWindow(section.Figures(popup.Value)));
+    uicontrol('Parent', parentPanel, 'Style', 'pushbutton', 'String', 'Open PNG File', ...
+        'Units', 'normalized', 'Position', [0.81 0.335 0.16 0.035], ...
+        'Callback', @(~, ~) localOpenExternal(section.Figures(popup.Value)));
+    set(popup, 'Callback', @(src, ~) localShowImage(ax, section.Figures(src.Value)));
+    localShowImage(ax, section.Figures(1));
+else
+    uicontrol('Parent', parentPanel, 'Style', 'text', 'String', 'No saved figure is associated with this section.', ...
+        'Units', 'normalized', 'Position', [0.02 0.18 0.96 0.05], ...
+        'HorizontalAlignment', 'left', 'BackgroundColor', 'w', ...
+        'FontName', 'Calibri', 'FontSize', 10);
+end
+end
+
+function [data, columnNames] = localTableForUi(tableValue)
+maxRows = min(height(tableValue), 500);
+tableValue = tableValue(1:maxRows, :);
+columnNames = tableValue.Properties.VariableNames;
+data = table2cell(tableValue);
+for iCell = 1:numel(data)
+    data{iCell} = localCellText(data{iCell});
+end
+end
+
+function textValue = localCellText(value)
+if isnumeric(value) || islogical(value)
+    if isscalar(value)
+        if isfinite(double(value))
+            textValue = sprintf('%.4g', double(value));
+        else
+            textValue = 'NaN';
+        end
+    else
+        textValue = mat2str(size(value));
+    end
+elseif isstring(value)
+    if isscalar(value)
+        textValue = char(value);
+    else
+        textValue = strjoin(cellstr(value(:)'), ', ');
+    end
+elseif ischar(value)
+    textValue = value;
+elseif iscell(value)
+    try
+        textValue = localCellText(value{1});
+    catch
+        textValue = '[cell]';
+    end
+else
+    textValue = char(string(value));
+end
+end
+
+function localShowImage(ax, filePath)
+cla(ax);
+try
+    img = imread(char(filePath));
+    image(ax, img);
+    axis(ax, 'image');
+    axis(ax, 'off');
+    title(ax, char(localFileName(filePath)), 'Interpreter', 'none', 'FontSize', 9);
+catch
+    text(ax, 0.5, 0.5, 'Could not load image.', 'HorizontalAlignment', 'center');
+    axis(ax, 'off');
+end
+end
+
+function localOpenFigureWindow(filePath)
+try
+    img = imread(char(filePath));
+    fig = figure('Name', char(localFileName(filePath)), 'NumberTitle', 'off', 'Color', 'w');
+    ax = axes('Parent', fig);
+    image(ax, img);
+    axis(ax, 'image');
+    axis(ax, 'off');
+    title(ax, char(localFileName(filePath)), 'Interpreter', 'none');
+catch
+end
+end
+
+function localOpenExternal(filePath)
+try
+    if ispc
+        winopen(char(filePath));
+    else
+        open(char(filePath));
+    end
+catch
+end
+end
+
+function localOpenOutputFolder(results)
+try
+    folderPath = "";
+    if isfield(results, 'Paths') && isfield(results.Paths, 'Root')
+        folderPath = string(results.Paths.Root);
+    end
+    if strlength(folderPath) > 0 && isfolder(char(folderPath))
+        if ispc
+            winopen(char(folderPath));
+        else
+            open(char(folderPath));
+        end
+    end
+catch
+end
+end
+
+function textValue = localInfoText(results)
+textValue = sprintf(['RCA GUI provides a fast MATLAB-native view of the analysis evidence without regenerating the Word report.\n\n', ...
+    'Use the left Table of Contents pane to navigate. The right pane shows section narrative, the most relevant table, and saved figures where available.']);
+if isfield(results, 'Paths') && isfield(results.Paths, 'Root')
+    textValue = sprintf('%s\n\nOutput folder:\n%s', textValue, char(string(results.Paths.Root)));
+end
+end
+
+function tableValue = localInfoTable(results)
+rows = {'Output folder', localNestedText(results, {'Paths', 'Root'}); ...
+    'Reference time source', localNestedText(results, {'ReferenceInfo', 'Source'}); ...
+    'Reference method', localNestedText(results, {'ReferenceInfo', 'Method'}); ...
+    'Vehicle KPI rows', num2str(localTableHeight(results, 'VehicleKPI')); ...
+    'Segment rows', num2str(localTableHeight(results, 'SegmentSummary')); ...
+    'Root-cause rows', num2str(localTableHeight(results, 'RootCauseRanking'))};
+tableValue = cell2table(rows, 'VariableNames', {'Item', 'Value'});
+end
+
+function textValue = localTechnicalSummaryText(results)
+parts = strings(0, 1);
+parts = [parts; localGetStringVector(results, 'VehicleNarrative')];
+parts = [parts; localGetStringVector(results, 'RootCauseNarrative')];
+if isempty(parts)
+    parts = "No technical summary text was recorded.";
+end
+textValue = localJoinLines(parts);
+end
+
+function textValue = localSimulationText(results)
+parts = strings(0, 1);
+parts(end + 1) = "Simulation and data overview summarizes the loaded MAT inventory, workbook-driven signal availability, and reference-time selection used by the RCA workflow.";
+parts(end + 1) = "Use the Signal Availability section for the detailed signal audit and the Appendix sections for extraction logs.";
+if isfield(results, 'Metadata') && isfield(results.Metadata, 'ExcelFile')
+    parts(end + 1) = "Workbook metadata: " + string(results.Metadata.ExcelFile);
+end
+textValue = localJoinLines(parts);
+end
+
+function textValue = localSignalText(results)
+presentCount = 0;
+missingCount = 0;
+if isfield(results, 'SignalPresence') && istable(results.SignalPresence) && height(results.SignalPresence) > 0
+    status = string(results.SignalPresence.Status);
+    presentCount = sum(status == "Present");
+    missingCount = sum(contains(status, "Missing"));
+end
+textValue = sprintf('Signal audit summary: %d present signals and %d missing or optional-missing signals.', presentCount, missingCount);
+end
+
+function textValue = localMethodologyText(~)
+textValue = sprintf(['RCA methodology is workbook-driven and evidence-based.\n\n', ...
+    '1. Read workbook metadata and MAT contents.\n', ...
+    '2. Resolve and align available signals to a common time basis.\n', ...
+    '3. Build derived vehicle, energy, force, power, and subsystem traces.\n', ...
+    '4. Create event/route segments from motion class, grade class, auxiliary-load class, and gear.\n', ...
+    '5. Compute vehicle, segment, and subsystem KPI.\n', ...
+    '6. Screen bad segments and rank likely root causes using physics-guided factors.\n', ...
+    '7. Generate review outputs, figures, GUI, and optional Word report.']);
+end
+
+function textValue = localSubsystemText(sub)
+parts = strings(0, 1);
+parts(end + 1) = "Subsystem: " + string(sub.Name);
+parts(end + 1) = "Available: " + string(sub.Available);
+if isfield(sub, 'RequiredSignals')
+    parts(end + 1) = "Required signals: " + localJoinCellStrings(sub.RequiredSignals);
+end
+if isfield(sub, 'OptionalSignals')
+    parts(end + 1) = "Optional/context signals: " + localJoinCellStrings(sub.OptionalSignals);
+end
+if isfield(sub, 'SummaryText')
+    parts = [parts; string(sub.SummaryText(:))];
+end
+if isfield(sub, 'Warnings') && ~isempty(sub.Warnings)
+    parts(end + 1) = "Warnings / limitations:";
+    parts = [parts; " - " + string(sub.Warnings(:))];
+end
+if isfield(sub, 'Suggestions') && istable(sub.Suggestions) && height(sub.Suggestions) > 0
+    parts(end + 1) = "Suggestions are available in the table when recorded by the subsystem analyzer.";
+end
+textValue = localJoinLines(parts);
+end
+
+function value = localJoinCellStrings(values)
+try
+    value = strjoin(cellstr(string(values(:)')), ', ');
+catch
+    value = "";
+end
+end
+
+function tableValue = localSubsystemKPI(sub)
+if isfield(sub, 'KPITable') && istable(sub.KPITable)
+    tableValue = sub.KPITable;
+else
+    tableValue = table();
+end
+end
+
+function tableValue = localTrimSignalTable(tableValue)
+if ~istable(tableValue) || height(tableValue) == 0
+    tableValue = table();
+    return;
+end
+removeCols = {'Note', 'Requirement', 'Method', 'BestMatch'};
+keepCols = setdiff(tableValue.Properties.VariableNames, removeCols, 'stable');
+tableValue = tableValue(:, keepCols);
+tableValue = localTopTable(tableValue, 500);
+end
+
+function tableValue = localTopTable(tableValue, maxRows)
+if ~istable(tableValue) || height(tableValue) == 0
+    tableValue = table();
+    return;
+end
+tableValue = tableValue(1:min(maxRows, height(tableValue)), :);
+end
+
+function tableValue = localGetTable(results, fieldName)
+if isfield(results, fieldName) && istable(results.(fieldName))
+    tableValue = results.(fieldName);
+else
+    tableValue = table();
+end
+end
+
+function tableValue = localGetThresholdTable(results)
+if isfield(results, 'Config') && isfield(results.Config, 'ThresholdTable') && istable(results.Config.ThresholdTable)
+    tableValue = results.Config.ThresholdTable;
+else
+    tableValue = table();
+end
+end
+
+function values = localGetStringVector(results, fieldName)
+values = strings(0, 1);
+if isfield(results, fieldName)
+    try
+        values = string(results.(fieldName)(:));
+    catch
+    end
+end
+values = values(strlength(values) > 0);
+end
+
+function subsystems = localGetSubsystems(results)
+if isfield(results, 'SubsystemResults') && isstruct(results.SubsystemResults)
+    subsystems = results.SubsystemResults;
+else
+    subsystems = struct([]);
+end
+end
+
+function files = localVehicleFigures(results, tokens)
+files = strings(0, 1);
+if ~isfield(results, 'VehiclePlots') || ~isstruct(results.VehiclePlots) || ~isfield(results.VehiclePlots, 'Files')
+    return;
+end
+allFiles = localExistingFiles(string(results.VehiclePlots.Files(:)));
+tokens = string(tokens(:));
+if isempty(tokens)
+    files = allFiles;
+    return;
+end
+for iFile = 1:numel(allFiles)
+    [~, name, ~] = fileparts(char(allFiles(iFile)));
+    if any(contains(string(name), tokens, 'IgnoreCase', true))
+        files(end + 1, 1) = allFiles(iFile); %#ok<AGROW>
+    end
+end
+end
+
+function files = localExistingFiles(fileList)
+files = strings(0, 1);
+for iFile = 1:numel(fileList)
+    if strlength(fileList(iFile)) > 0 && isfile(char(fileList(iFile)))
+        files(end + 1, 1) = fileList(iFile); %#ok<AGROW>
+    end
+end
+end
+
+function labels = localFigureLabels(files)
+labels = strings(numel(files), 1);
+for iFile = 1:numel(files)
+    labels(iFile) = sprintf('%d. %s', iFile, localFileName(files(iFile)));
+end
+end
+
+function name = localFileName(filePath)
+[~, baseName, ext] = fileparts(char(filePath));
+name = string([baseName ext]);
+end
+
+function value = localNestedText(results, pathParts)
+try
+    current = results;
+    for iPart = 1:numel(pathParts)
+        current = current.(pathParts{iPart});
+    end
+    value = char(string(current));
+catch
+    value = "";
+end
+end
+
+function countValue = localTableHeight(results, fieldName)
+if isfield(results, fieldName) && istable(results.(fieldName))
+    countValue = height(results.(fieldName));
+else
+    countValue = 0;
+end
+end
+
+function textValue = localJoinLines(values)
+values = string(values(:));
+values = values(strlength(values) > 0);
+if isempty(values)
+    textValue = "";
+else
+    textValue = strjoin(values, newline);
+end
+end
+
+function pretty = localPrettyName(nameValue)
+pretty = regexprep(char(string(nameValue)), '([a-z])([A-Z])', '$1 $2');
+pretty = regexprep(pretty, '_+', ' ');
+pretty = strtrim(pretty);
+end
