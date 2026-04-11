@@ -749,7 +749,7 @@ end
 function value = localStringField(data, fieldName, defaultValue)
 value = string(defaultValue);
 if isstruct(data) && isfield(data, fieldName) && ~isempty(data.(fieldName))
-    value = strjoin(string(data.(fieldName)), newline);
+    value = strjoin(localToStringArray(data.(fieldName)), newline);
 end
 end
 
@@ -757,18 +757,84 @@ function values = localStringArrayField(data, fieldNames)
 values = strings(0, 1);
 for iField = 1:numel(fieldNames)
     if isstruct(data) && isfield(data, fieldNames{iField}) && ~isempty(data.(fieldNames{iField}))
-        values = string(data.(fieldNames{iField}));
-        values = values(:);
+        values = localToStringArray(data.(fieldNames{iField}));
         values = values(strlength(strtrim(values)) > 0);
         return;
     end
 end
 end
 
+function values = localToStringArray(value)
+if isempty(value)
+    values = strings(0, 1);
+elseif isstring(value)
+    values = value(:);
+elseif ischar(value)
+    values = string(value);
+elseif istable(value)
+    values = localTableRowsToText(value);
+elseif iscell(value)
+    values = strings(0, 1);
+    for iValue = 1:numel(value)
+        values = [values; localToStringArray(value{iValue})]; %#ok<AGROW>
+    end
+elseif isstruct(value)
+    values = localStructToText(value);
+elseif isnumeric(value) || islogical(value) || isdatetime(value) || isduration(value)
+    values = string(value(:));
+else
+    try
+        values = string(value(:));
+    catch
+        values = "[" + string(class(value)) + "]";
+    end
+end
+values = values(:);
+end
+
+function values = localTableRowsToText(tbl)
+if height(tbl) == 0
+    values = strings(0, 1);
+    return;
+end
+names = tbl.Properties.VariableNames;
+values = strings(height(tbl), 1);
+for iRow = 1:height(tbl)
+    parts = strings(0, 1);
+    for iCol = 1:width(tbl)
+        cellValue = tbl{iRow, iCol};
+        label = string(names{iCol});
+        textValue = localTextValue(cellValue);
+        if strlength(strtrim(textValue)) > 0
+            parts(end + 1, 1) = label + ": " + textValue; %#ok<AGROW>
+        end
+    end
+    if isempty(parts)
+        values(iRow) = "";
+    else
+        values(iRow) = strjoin(parts, " | ");
+    end
+end
+end
+
+function values = localStructToText(data)
+values = strings(0, 1);
+if numel(data) ~= 1
+    for iValue = 1:numel(data)
+        values = [values; localStructToText(data(iValue))]; %#ok<AGROW>
+    end
+    return;
+end
+names = fieldnames(data);
+for iName = 1:numel(names)
+    values(end + 1, 1) = string(names{iName}) + ": " + localTextValue(data.(names{iName})); %#ok<AGROW>
+end
+end
+
 function txt = localTextField(results, fieldName, fallback)
 txt = string(fallback);
 if isstruct(results) && isfield(results, fieldName) && ~isempty(results.(fieldName))
-    txt = localJoin(string(results.(fieldName)));
+    txt = localJoin(localToStringArray(results.(fieldName)));
 end
 end
 
@@ -802,6 +868,8 @@ elseif isnumeric(value)
     end
 elseif islogical(value) || isdatetime(value)
     txt = string(value);
+elseif istable(value)
+    txt = strjoin(localTableRowsToText(value), "; ");
 elseif iscell(value)
     pieces = strings(numel(value), 1);
     for iValue = 1:numel(value)
