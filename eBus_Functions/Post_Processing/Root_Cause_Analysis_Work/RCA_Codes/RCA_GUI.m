@@ -540,9 +540,24 @@ tbl = table();
 for iSub = 1:numel(subs)
     kpi = localSubsystemKpi(subs(iSub));
     if istable(kpi) && height(kpi) > 0
-        subName = repmat(cellstr(localSubsystemName(subs(iSub), iSub)), height(kpi), 1);
-        kpi = addvars(kpi, subName, 'Before', 1, 'NewVariableNames', 'Subsystem');
+        kpi = localEnsureSubsystemColumn(kpi, localSubsystemName(subs(iSub), iSub));
         tbl = [tbl; kpi]; %#ok<AGROW>
+    end
+end
+end
+
+function kpi = localEnsureSubsystemColumn(kpi, subName)
+subNameColumn = repmat(cellstr(subName), height(kpi), 1);
+existingNames = kpi.Properties.VariableNames;
+matchIdx = find(strcmpi(existingNames, 'Subsystem'), 1, 'first');
+if isempty(matchIdx)
+    kpi = addvars(kpi, subNameColumn, 'Before', 1, 'NewVariableNames', 'Subsystem');
+else
+    actualName = existingNames{matchIdx};
+    if all(strlength(strtrim(string(kpi.(actualName)))) == 0)
+        kpi.(actualName) = subNameColumn;
+    elseif ~strcmp(actualName, 'Subsystem')
+        kpi.Properties.VariableNames{matchIdx} = 'Subsystem';
     end
 end
 end
