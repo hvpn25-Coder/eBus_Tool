@@ -49,6 +49,8 @@ coastMask = isfinite(accPedal) & isfinite(brkPedal) & ...
     brkPedal <= config.Thresholds.DriverCoastPedal_pct & movingMask;
 
 desiredAccel = localFiniteDiff(desiredSpeed / 3.6, dt);
+accPedalRate = localSignalRate(accPedal, dt);
+brkPedalRate = localSignalRate(brkPedal, dt);
 
 nearTorqueLimitMask = false(size(t));
 limitApplicableMask = false(size(t));
@@ -73,25 +75,41 @@ if isfinite(vehicleMass)
 end
 
 if any(trackingMask)
+    trackMeanError = mean(speedError(trackingMask), 'omitnan');
     trackMae = mean(abs(speedError(trackingMask)), 'omitnan');
     trackRmse = sqrt(mean(speedError(trackingMask).^2, 'omitnan'));
+    trackMaxAbs = max(abs(speedError(trackingMask)), [], 'omitnan');
     trackP95 = RCA_Percentile(abs(speedError(trackingMask)), 95);
+    trackWithinTightBand = 100 * RCA_FractionTrue(abs(speedError) <= config.Thresholds.DriverErrorTightBand_kmh, trackingMask);
     trackWithinBand = 100 * RCA_FractionTrue(withinBandMask, trackingMask);
+    trackWithinLooseBand = 100 * RCA_FractionTrue(abs(speedError) <= config.Thresholds.DriverErrorLooseBand_kmh, trackingMask);
     underspeedShare = 100 * RCA_FractionTrue(underspeedMask, trackingMask);
     overspeedShare = 100 * RCA_FractionTrue(overspeedMask, trackingMask);
+    zeroCrossRate = localErrorSignChangeRate(speedError(trackingMask), config.Thresholds.DriverTrackingBand_kmh, ...
+        max(t(find(trackingMask, 1, 'last')) - t(find(trackingMask, 1, 'first')), eps));
 
+    rows = RCA_AddKPI(rows, 'Driver Mean Speed Error', trackMeanError, 'km/h', 'Tracking', 'Driver', ...
+        'veh_des_vel + veh_vel', 'Signed speed error; positive means the bus is below requested speed.');
     rows = RCA_AddKPI(rows, 'Driver Tracking MAE', trackMae, 'km/h', 'Tracking', 'Driver', ...
         'veh_des_vel + veh_vel', 'Mean absolute speed error over active driving samples.');
     rows = RCA_AddKPI(rows, 'Driver Tracking RMSE', trackRmse, 'km/h', 'Tracking', 'Driver', ...
         'veh_des_vel + veh_vel', 'Root-mean-square speed error highlights occasional large misses.');
+    rows = RCA_AddKPI(rows, 'Driver Max Absolute Error', trackMaxAbs, 'km/h', 'Tracking', 'Driver', ...
+        'veh_des_vel + veh_vel', 'Worst-case active-driving speed tracking miss.');
     rows = RCA_AddKPI(rows, 'Driver Tracking 95th Percentile', trackP95, 'km/h', 'Tracking', 'Driver', ...
         'veh_des_vel + veh_vel', 'Tail tracking error is useful for stakeholder worst-case review.');
+    rows = RCA_AddKPI(rows, 'Tracking Within Tight Band Share', trackWithinTightBand, '%', 'Tracking', 'Driver', ...
+        'veh_des_vel + veh_vel', sprintf('Tight band is +/- %.1f km/h for controller-quality review.', config.Thresholds.DriverErrorTightBand_kmh));
     rows = RCA_AddKPI(rows, 'Tracking Within Band Share', trackWithinBand, '%', 'Tracking', 'Driver', ...
         'veh_des_vel + veh_vel', sprintf('Band is +/- %.1f km/h and is editable in RCA_Config.', config.Thresholds.DriverTrackingBand_kmh));
+    rows = RCA_AddKPI(rows, 'Tracking Within Loose Band Share', trackWithinLooseBand, '%', 'Tracking', 'Driver', ...
+        'veh_des_vel + veh_vel', sprintf('Loose band is +/- %.1f km/h and is used for broad stakeholder tolerance review.', config.Thresholds.DriverErrorLooseBand_kmh));
     rows = RCA_AddKPI(rows, 'Underspeed Share', underspeedShare, '%', 'Performance', 'Driver', ...
         'veh_des_vel + veh_vel', 'Desired speed exceeds actual speed by more than the configured tracking band.');
     rows = RCA_AddKPI(rows, 'Overspeed Share', overspeedShare, '%', 'Performance', 'Driver', ...
         'veh_des_vel + veh_vel', 'Actual speed exceeds desired speed by more than the configured tracking band.');
+    rows = RCA_AddKPI(rows, 'Speed Error Sign-Change Rate', zeroCrossRate, '1/s', 'Smoothness', 'Driver', ...
+        'veh_des_vel + veh_vel', 'Repeated sign changes around the target indicate oscillatory PI correction or insufficient deadband.');
 
     summary(end + 1) = sprintf(['Driver tracking stays within +/- %.1f km/h for %.1f%% of active samples. ', ...
         'Underspeed share is %.1f%% and overspeed share is %.1f%%.'], ...
@@ -101,39 +119,70 @@ end
 if any(isfinite(accPedal))
     accActiveShare = 100 * RCA_FractionTrue(accActiveMask, isfinite(accPedal) & movingMask);
     highAccelShare = 100 * RCA_FractionTrue(accPedal >= config.Thresholds.DriverHighAccelPedal_pct, isfinite(accPedal) & movingMask);
+    accSaturationShare = 100 * RCA_FractionTrue(accPedal >= config.Thresholds.DriverPedalSaturation_pct, isfinite(accPedal) & movingMask);
     rows = RCA_AddKPI(rows, 'Mean Accelerator Pedal', mean(accPedal, 'omitnan'), '%', 'Demand', 'Driver', ...
         'acc_pdl', 'Average accelerator command from the driver controller.');
+    rows = RCA_AddKPI(rows, 'Peak Accelerator Pedal', max(accPedal, [], 'omitnan'), '%', 'Demand', 'Driver', ...
+        'acc_pdl', 'Peak propulsion request; sustained peaks suggest saturation or plant limitation.');
+    rows = RCA_AddKPI(rows, 'Accelerator Pedal RMS', localRmsFinite(accPedal, movingMask), '%', 'Smoothness', 'Driver', ...
+        'acc_pdl', 'RMS accelerator effort summarizes command intensity over moving samples.');
     rows = RCA_AddKPI(rows, 'Accelerator Pedal 95th Percentile', RCA_Percentile(accPedal, 95), '%', 'Demand', 'Driver', ...
         'acc_pdl', 'High values indicate aggressive or saturation-prone propulsion requests.');
+    rows = RCA_AddKPI(rows, 'Accelerator Pedal Rate RMS', localRmsFinite(accPedalRate, movingMask), '%/s', 'Smoothness', 'Driver', ...
+        'acc_pdl + time', 'High rate RMS indicates aggressive pedal shaping or insufficient command filtering.');
+    rows = RCA_AddKPI(rows, 'Accelerator Pedal Rate 95th Percentile', RCA_Percentile(abs(accPedalRate(movingMask & isfinite(accPedalRate))), 95), '%/s', 'Smoothness', 'Driver', ...
+        'acc_pdl + time', 'Tail pedal-rate metric highlights command spikes and chatter.');
     rows = RCA_AddKPI(rows, 'Accelerator Active Share', accActiveShare, '%', 'Demand', 'Driver', ...
         'acc_pdl', sprintf('Pedal >= %.1f%% is treated as active demand.', config.Thresholds.DriverPedalActive_pct));
     rows = RCA_AddKPI(rows, 'High Accelerator Demand Share', highAccelShare, '%', 'Demand', 'Driver', ...
         'acc_pdl', sprintf('Pedal >= %.1f%% is treated as a strong propulsion request.', config.Thresholds.DriverHighAccelPedal_pct));
+    rows = RCA_AddKPI(rows, 'Accelerator Saturation Share', accSaturationShare, '%', 'Limits', 'Driver', ...
+        'acc_pdl', sprintf('Pedal >= %.1f%% is treated as saturated command.', config.Thresholds.DriverPedalSaturation_pct));
 end
 
 if any(isfinite(brkPedal))
     brkActiveShare = 100 * RCA_FractionTrue(brkActiveMask, isfinite(brkPedal) & movingMask);
     hardBrakeShare = 100 * RCA_FractionTrue(brkPedal >= config.Thresholds.DriverHighBrakePedal_pct, isfinite(brkPedal) & movingMask);
+    brkSaturationShare = 100 * RCA_FractionTrue(brkPedal >= config.Thresholds.DriverBrakeSaturation_pct, isfinite(brkPedal) & movingMask);
     rows = RCA_AddKPI(rows, 'Mean Brake Pedal', mean(brkPedal, 'omitnan'), '%', 'Demand', 'Driver', ...
         'brk_pdl', 'Average brake request from the driver controller.');
+    rows = RCA_AddKPI(rows, 'Peak Brake Pedal', max(brkPedal, [], 'omitnan'), '%', 'Demand', 'Driver', ...
+        'brk_pdl', 'Peak braking request; useful for reviewing deceleration authority and downhill control.');
+    rows = RCA_AddKPI(rows, 'Brake Pedal RMS', localRmsFinite(brkPedal, movingMask), '%', 'Smoothness', 'Driver', ...
+        'brk_pdl', 'RMS brake effort summarizes command intensity over moving samples.');
     rows = RCA_AddKPI(rows, 'Brake Pedal 95th Percentile', RCA_Percentile(brkPedal, 95), '%', 'Demand', 'Driver', ...
         'brk_pdl', 'High values indicate strong or frequent brake intervention.');
+    rows = RCA_AddKPI(rows, 'Brake Pedal Rate RMS', localRmsFinite(brkPedalRate, movingMask), '%/s', 'Smoothness', 'Driver', ...
+        'brk_pdl + time', 'High brake-rate RMS indicates abrupt braking command shaping.');
+    rows = RCA_AddKPI(rows, 'Brake Pedal Rate 95th Percentile', RCA_Percentile(abs(brkPedalRate(movingMask & isfinite(brkPedalRate))), 95), '%/s', 'Smoothness', 'Driver', ...
+        'brk_pdl + time', 'Tail brake-rate metric highlights brake spikes and chatter.');
     rows = RCA_AddKPI(rows, 'Brake Active Share', brkActiveShare, '%', 'Demand', 'Driver', ...
         'brk_pdl', sprintf('Pedal >= %.1f%% is treated as active braking.', config.Thresholds.DriverPedalActive_pct));
     rows = RCA_AddKPI(rows, 'High Brake Demand Share', hardBrakeShare, '%', 'Demand', 'Driver', ...
         'brk_pdl', sprintf('Pedal >= %.1f%% is treated as strong braking demand.', config.Thresholds.DriverHighBrakePedal_pct));
+    rows = RCA_AddKPI(rows, 'Brake Saturation Share', brkSaturationShare, '%', 'Limits', 'Driver', ...
+        'brk_pdl', sprintf('Brake pedal >= %.1f%% is treated as saturated braking command.', config.Thresholds.DriverBrakeSaturation_pct));
 end
 
 if any(isfinite(accPedal)) && any(isfinite(brkPedal))
     validPedal = movingMask & isfinite(accPedal) & isfinite(brkPedal);
     overlapShare = 100 * RCA_FractionTrue(pedalOverlapMask, validPedal);
     coastShare = 100 * RCA_FractionTrue(coastMask, validPedal);
+    pedalSwitchCount = localPedalSwitchCount(accPedal, brkPedal, config);
+    unnecessaryAccelShare = 100 * RCA_FractionTrue(accActiveMask & overspeedMask, validPedal);
+    unnecessaryBrakeShare = 100 * RCA_FractionTrue(brkActiveMask & underspeedMask, validPedal);
     rows = RCA_AddKPI(rows, 'Pedal Overlap Share', overlapShare, '%', 'Operation', 'Driver', ...
         'acc_pdl + brk_pdl', ...
         sprintf('Simultaneous pedal demand above %.1f%% is a heuristic arbitration-quality indicator.', config.Thresholds.DriverPedalOverlap_pct));
     rows = RCA_AddKPI(rows, 'Coasting Share', coastShare, '%', 'Efficiency', 'Driver', ...
         'acc_pdl + brk_pdl + veh_vel', ...
         sprintf('Both pedals below %.1f%% are treated as coasting demand.', config.Thresholds.DriverCoastPedal_pct));
+    rows = RCA_AddKPI(rows, 'Accel-Brake Switch Count', pedalSwitchCount, 'count', 'Smoothness', 'Driver', ...
+        'acc_pdl + brk_pdl', 'Counts direct accelerator-to-brake and brake-to-accelerator command switches; high count indicates chatter or weak deadband.');
+    rows = RCA_AddKPI(rows, 'Unnecessary Accel While Overspeed Share', unnecessaryAccelShare, '%', 'LogicHealth', 'Driver', ...
+        'acc_pdl + veh_des_vel + veh_vel', 'Accelerator command while vehicle is already above target speed indicates possible arbitration/deadband issue.');
+    rows = RCA_AddKPI(rows, 'Unnecessary Brake While Underspeed Share', unnecessaryBrakeShare, '%', 'LogicHealth', 'Driver', ...
+        'brk_pdl + veh_des_vel + veh_vel', 'Brake command while vehicle is already below target speed indicates possible arbitration/deadband issue.');
 end
 
 if any(trackingMask & isfinite(roadSlope))
@@ -152,6 +201,17 @@ if any(trackingMask & isfinite(roadSlope))
         rows = RCA_AddKPI(rows, 'Flat-Road Mean Speed Bias', mean(speedError(flatMask), 'omitnan'), 'km/h', 'Feedforward', 'Driver', ...
             'veh_des_vel + veh_vel + road_slp', 'Flat-road bias helps separate PI tuning issues from route-load effects.');
     end
+    [slopePedalGain, slopePedalCorr] = localSlopePedalSensitivity(roadSlope, accPedal, trackingMask & movingMask);
+    rows = RCA_AddKPI(rows, 'Slope-to-Accelerator Gain', slopePedalGain, '% pedal/% slope', 'Feedforward', 'Driver', ...
+        'road_slp + acc_pdl', 'Positive gain means accelerator demand increases with uphill grade; near-zero gain may indicate weak grade feedforward.');
+    rows = RCA_AddKPI(rows, 'Slope-to-Accelerator Correlation', slopePedalCorr, '-', 'Feedforward', 'Driver', ...
+        'road_slp + acc_pdl', 'Manual Pearson correlation between grade and accelerator command; used only as supporting evidence, not causation.');
+    [uphillEntryMae, uphillEntryCount] = localGradeEntryError(t, roadSlope, speedError, true, config);
+    [downhillEntryMae, downhillEntryCount] = localGradeEntryError(t, roadSlope, speedError, false, config);
+    rows = RCA_AddKPI(rows, 'Uphill Entry Tracking MAE', uphillEntryMae, 'km/h', 'Feedforward', 'Driver', ...
+        'road_slp + veh_des_vel + veh_vel', sprintf('Mean |error| in %.1f s after uphill entries; entry count %.0f.', config.Thresholds.DriverSlopeEntryWindow_s, uphillEntryCount));
+    rows = RCA_AddKPI(rows, 'Downhill Entry Tracking MAE', downhillEntryMae, 'km/h', 'Feedforward', 'Driver', ...
+        'road_slp + veh_des_vel + veh_vel', sprintf('Mean |error| in %.1f s after downhill entries; entry count %.0f.', config.Thresholds.DriverSlopeEntryWindow_s, downhillEntryCount));
 end
 
 poorTrackingMask = trackingMask & abs(speedError) > config.Thresholds.DriverTrackingBand_kmh;
@@ -162,11 +222,30 @@ if any(limitApplicableMask & underspeedMask)
         'Quantifies how much underspeed coincides with near-limit drive-torque capability.');
 end
 
+if any(limitApplicableMask & trackingMask)
+    limitTimeShare = 100 * RCA_FractionTrue(nearTorqueLimitMask, limitApplicableMask & trackingMask);
+    satUnderspeedShare = 100 * RCA_FractionTrue(nearTorqueLimitMask & underspeedMask & accPedal >= config.Thresholds.DriverPedalSaturation_pct, ...
+        limitApplicableMask & trackingMask & isfinite(accPedal));
+    windupCount = localCountWindupSymptoms(t, nearTorqueLimitMask, underspeedMask, overspeedMask, config);
+    rows = RCA_AddKPI(rows, 'Torque-Limited Time Share', limitTimeShare, '%', 'Limits', 'Driver', ...
+        'max available torque + torque demand', sprintf('Torque demand >= %.0f%% of available positive limit.', 100 * config.Thresholds.LimitUsageFraction));
+    rows = RCA_AddKPI(rows, 'Saturated Underspeed Share', satUnderspeedShare, '%', 'Limits', 'Driver', ...
+        'acc_pdl + veh_des_vel + veh_vel + max available torque', 'Acceleration command is saturated while the bus remains below target speed.');
+    rows = RCA_AddKPI(rows, 'Post-Limit Overshoot Symptom Count', windupCount, 'count', 'Limits', 'Driver', ...
+        'veh_des_vel + veh_vel + max available torque', 'Counts overspeed shortly after torque-limit release following sustained underspeed; heuristic windup symptom.');
+end
+
 if any(poorTrackingMask)
     shiftPoorShare = 100 * RCA_FractionTrue(shiftWindowMask, poorTrackingMask);
     rows = RCA_AddKPI(rows, 'Shift-Influenced Poor Tracking Share', shiftPoorShare, '%', 'RootCause', 'Driver', ...
         'veh_des_vel + veh_vel + gr_num', ...
         sprintf('Poor tracking inside %.1f s after a gear shift is treated as shift-influenced.', config.Thresholds.DriverShiftInfluenceWindow_s));
+end
+
+if any(trackingMask & isfinite(gear))
+    [worstGear, worstGearMae] = localWorstGearTracking(gear, speedError, trackingMask);
+    rows = RCA_AddKPI(rows, 'Worst Gear Tracking MAE', worstGearMae, 'km/h', 'Robustness', 'Driver', ...
+        'gr_num + veh_des_vel + veh_vel', sprintf('Worst gear by mean absolute speed error is gear %.0f.', worstGear));
 end
 
 [eventTable, sampleEventType] = localBuildDriverEventTable(d, desiredAccel, nearTorqueLimitMask, limitApplicableMask, positiveShortfall, config);
@@ -325,7 +404,8 @@ evidence(end + 1) = "General cruise guidance based on flat-road cruise bias, spe
 driverTableFolder = outputPaths.Tables;
 localSafeWriteTable(eventTable, fullfile(driverTableFolder, 'Driver_EventSummary.csv'));
 localSafeWriteTable(badEvents, fullfile(driverTableFolder, 'Driver_BadEvents.csv'));
-driverBadSegments = localBuildDriverBadSegmentTable(t, desiredSpeed, vehSpeed, speedError, accPedal, brkPedal, gear, roadSlope, config);
+driverBadSegments = localBuildDriverBadSegmentTable(t, desiredSpeed, vehSpeed, speedError, accPedal, brkPedal, ...
+    accPedalRate, brkPedalRate, gear, roadSlope, nearTorqueLimitMask, limitApplicableMask, shiftWindowMask, config);
 localSafeWriteTable(driverBadSegments, fullfile(driverTableFolder, 'Driver_TrackingBadSegments.csv'));
 if ~isempty(driverBadSegments)
     badSegmentTimeShare = 100 * sum(driverBadSegments.Duration_s, 'omitnan') / max(t(end) - t(1), eps);
@@ -350,9 +430,10 @@ end
 plotFiles = localAppendPlotFile(plotFiles, localPlotDriverOverview(driverFigureFolder, t, desiredSpeed, vehSpeed, speedError, accPedal, brkPedal, gear, roadSlope, config));
 plotFiles = localAppendPlotFile(plotFiles, localPlotDriverEventHighlights(driverFigureFolder, t, desiredSpeed, vehSpeed, speedError, dynamicEvents, config));
 plotFiles = localAppendPlotFile(plotFiles, localPlotDriverErrorMaps(driverFigureFolder, gear, roadSlope, speedError, config));
+plotFiles = localAppendPlotFile(plotFiles, localPlotDriverStakeholderDashboard(driverFigureFolder, t, desiredSpeed, vehSpeed, speedError, accPedal, brkPedal, accPedalRate, brkPedalRate, roadSlope, gear, nearTorqueLimitMask, config));
 plotFiles = localAppendPlotFile(plotFiles, localPlotDriverGearwiseTracking(driverFigureFolder, t, desiredSpeed, vehSpeed, speedError, gear, config));
 plotFiles = localAppendPlotFile(plotFiles, localPlotDriverBadSegments(driverFigureFolder, t, desiredSpeed, vehSpeed, speedError, driverBadSegments, config));
-plotFiles = [plotFiles; reshape(localPlotDriverWorstSegments(driverFigureFolder, t, desiredSpeed, vehSpeed, speedError, accPedal, brkPedal, gear, roadSlope, driverBadSegments, config), [], 1)]; %#ok<AGROW>
+plotFiles = [plotFiles; reshape(localPlotDriverWorstSegments(driverFigureFolder, t, desiredSpeed, vehSpeed, speedError, accPedal, brkPedal, gear, roadSlope, driverBadSegments, config), [], 1)];
 plotFiles = plotFiles(plotFiles ~= "");
 
 result.Available = ~isempty(rows);
@@ -589,6 +670,56 @@ deltaTime(~isfinite(deltaTime) | deltaTime <= 0) = NaN;
 derivative(2:end) = deltaSignal ./ deltaTime;
 end
 
+function rate = localSignalRate(signal, dt)
+signal = double(signal(:));
+dt = double(dt(:));
+rate = NaN(size(signal));
+if isempty(signal)
+    return;
+end
+if numel(signal) == 1
+    rate(1) = 0;
+    return;
+end
+rate(1) = 0;
+deltaSignal = diff(signal);
+deltaTime = dt(2:end);
+deltaTime(~isfinite(deltaTime) | deltaTime <= 0) = NaN;
+rate(2:end) = deltaSignal ./ deltaTime;
+end
+
+function value = localRmsFinite(signal, mask)
+signal = double(signal(:));
+if nargin < 2 || isempty(mask)
+    mask = true(size(signal));
+else
+    mask = logical(mask(:));
+    if numel(mask) ~= numel(signal)
+        mask = true(size(signal));
+    end
+end
+valid = mask & isfinite(signal);
+if ~any(valid)
+    value = NaN;
+    return;
+end
+value = sqrt(mean(signal(valid).^2, 'omitnan'));
+end
+
+function switchCount = localPedalSwitchCount(accPedal, brkPedal, config)
+accActive = isfinite(accPedal) & accPedal >= config.Thresholds.DriverPedalActive_pct;
+brkActive = isfinite(brkPedal) & brkPedal >= config.Thresholds.DriverPedalActive_pct;
+state = zeros(size(accPedal));
+state(accActive & ~brkActive) = 1;
+state(brkActive & ~accActive) = -1;
+state = state(state ~= 0);
+if numel(state) <= 1
+    switchCount = 0;
+    return;
+end
+switchCount = sum(state(2:end) ~= state(1:end - 1));
+end
+
 function rate = localErrorSignChangeRate(speedError, band, duration_s)
 signValue = zeros(size(speedError));
 signValue(speedError > band) = 1;
@@ -599,6 +730,135 @@ if numel(signValue) <= 1 || ~isfinite(duration_s) || duration_s <= 0
     return;
 end
 rate = sum(signValue(2:end) ~= signValue(1:end - 1)) / duration_s;
+end
+
+function [gain, corrValue] = localSlopePedalSensitivity(roadSlope, accPedal, mask)
+roadSlope = double(roadSlope(:));
+accPedal = double(accPedal(:));
+mask = logical(mask(:));
+valid = mask & isfinite(roadSlope) & isfinite(accPedal);
+if sum(valid) < 3
+    gain = NaN;
+    corrValue = NaN;
+    return;
+end
+x = roadSlope(valid) - mean(roadSlope(valid), 'omitnan');
+y = accPedal(valid) - mean(accPedal(valid), 'omitnan');
+denGain = sum(x.^2, 'omitnan');
+denCorr = sqrt(sum(x.^2, 'omitnan') * sum(y.^2, 'omitnan'));
+if denGain <= eps
+    gain = NaN;
+else
+    gain = sum(x .* y, 'omitnan') / denGain;
+end
+if denCorr <= eps
+    corrValue = NaN;
+else
+    corrValue = sum(x .* y, 'omitnan') / denCorr;
+end
+end
+
+function [meanAbsError, entryCount] = localGradeEntryError(t, roadSlope, speedError, isUphill, config)
+meanAbsError = NaN;
+entryCount = 0;
+if numel(t) < 2 || ~any(isfinite(roadSlope)) || ~any(isfinite(speedError))
+    return;
+end
+if isUphill
+    threshold = config.Thresholds.UphillSlope_pct;
+    entryIndex = find(roadSlope(1:end - 1) <= threshold & roadSlope(2:end) > threshold) + 1;
+else
+    threshold = config.Thresholds.DownhillSlope_pct;
+    entryIndex = find(roadSlope(1:end - 1) >= threshold & roadSlope(2:end) < threshold) + 1;
+end
+entryErrors = [];
+for iEntry = 1:numel(entryIndex)
+    windowMask = t >= t(entryIndex(iEntry)) & t <= t(entryIndex(iEntry)) + config.Thresholds.DriverSlopeEntryWindow_s;
+    values = abs(speedError(windowMask & isfinite(speedError)));
+    if ~isempty(values)
+        entryErrors = [entryErrors; values(:)]; %#ok<AGROW>
+        entryCount = entryCount + 1;
+    end
+end
+if ~isempty(entryErrors)
+    meanAbsError = mean(entryErrors, 'omitnan');
+end
+end
+
+function [worstGear, worstMae] = localWorstGearTracking(gear, speedError, mask)
+worstGear = NaN;
+worstMae = NaN;
+valid = mask & isfinite(gear) & isfinite(speedError);
+if ~any(valid)
+    return;
+end
+gearValues = unique(gear(valid));
+gearValues = gearValues(:)';
+gearMae = NaN(size(gearValues));
+for iGear = 1:numel(gearValues)
+    gearMask = valid & gear == gearValues(iGear);
+    gearMae(iGear) = mean(abs(speedError(gearMask)), 'omitnan');
+end
+[worstMae, idx] = max(gearMae, [], 'omitnan');
+if ~isempty(idx) && isfinite(worstMae)
+    worstGear = gearValues(idx);
+end
+end
+
+function count = localCountWindupSymptoms(t, nearTorqueLimitMask, underspeedMask, overspeedMask, config)
+count = 0;
+if numel(t) < 2 || ~any(nearTorqueLimitMask)
+    return;
+end
+clearIndex = find(nearTorqueLimitMask(1:end - 1) & ~nearTorqueLimitMask(2:end)) + 1;
+for iClear = 1:numel(clearIndex)
+    beforeMask = t >= t(clearIndex(iClear)) - config.Thresholds.DriverLimitRecoveryWindow_s & t < t(clearIndex(iClear));
+    afterMask = t >= t(clearIndex(iClear)) & t <= t(clearIndex(iClear)) + config.Thresholds.DriverLimitRecoveryWindow_s;
+    if any(beforeMask & underspeedMask) && any(afterMask & overspeedMask)
+        count = count + 1;
+    end
+end
+end
+
+function [likelyCause, confidenceNote, tuningHint] = localInterpretDriverBadSegment(meanError, meanSlope, meanAccel, meanBrake, rateRms, limitShare, shiftInfluenced, segmentError, duration_s, config)
+likelyCause = "Tracking loss - mixed cause";
+confidenceNote = "Low-medium confidence because multiple signatures may overlap.";
+tuningHint = "Inspect speed error, pedals, slope, gear and torque limit together before retuning.";
+
+oscillationRate = localErrorSignChangeRate(segmentError, config.Thresholds.DriverTrackingBand_kmh, max(duration_s, eps));
+if isfinite(limitShare) && limitShare >= 40 && meanError > config.Thresholds.DriverTrackingBand_kmh
+    likelyCause = "Tracking loss - torque limited";
+    confidenceNote = "Medium-high confidence because high positive error coincides with near available-torque limit.";
+    tuningHint = "Treat this primarily as capability or limit-scheduling evidence before increasing PI gains.";
+elseif shiftInfluenced
+    likelyCause = "Tracking loss - gear sensitive";
+    confidenceNote = "Medium confidence because the bad window overlaps the configured post-shift influence window.";
+    tuningHint = "Review gear-aware feedforward and torque handover during ratio changes.";
+elseif meanSlope > config.Thresholds.UphillSlope_pct && meanError > config.Thresholds.DriverTrackingBand_kmh
+    likelyCause = "Late response to uphill/load feedforward";
+    confidenceNote = "Medium confidence because sustained underspeed occurs on positive grade without a stronger limiter signature.";
+    tuningHint = "Increase grade/load feedforward or reduce feedforward delay before increasing PI aggressiveness.";
+elseif meanSlope < config.Thresholds.DownhillSlope_pct && meanError < -config.Thresholds.DriverTrackingBand_kmh
+    likelyCause = "Late downhill compensation";
+    confidenceNote = "Medium confidence because overspeed occurs on negative grade.";
+    tuningHint = "Strengthen downhill decel feedforward and review brake entry deadband.";
+elseif isfinite(rateRms) && rateRms >= config.Thresholds.DriverPedalRateWarn_pctps
+    likelyCause = "Aggressive pedal activity";
+    confidenceNote = "Medium confidence because pedal command rate is high inside the bad segment.";
+    tuningHint = "Add pedal-rate limiting, filtering or hysteresis after confirming tracking performance remains acceptable.";
+elseif oscillationRate >= config.Thresholds.DriverOscillationRate_per_s || (isfinite(meanAccel) && isfinite(meanBrake) && meanAccel > 5 && meanBrake > 5)
+    likelyCause = "Overshoot / oscillation or drive-brake conflict";
+    confidenceNote = "Medium confidence because error sign changes or simultaneous pedal effort indicate control conflict.";
+    tuningHint = "Reduce PI aggressiveness, add deadband/hysteresis, and verify anti-windup around zero speed error.";
+elseif meanError > config.Thresholds.DriverTrackingBand_kmh
+    likelyCause = "Tracking loss - sluggish acceleration response";
+    confidenceNote = "Medium confidence because the bus remains below target speed without a stronger contextual signature.";
+    tuningHint = "Increase positive-error response or integral action cautiously after checking torque availability.";
+elseif meanError < -config.Thresholds.DriverTrackingBand_kmh
+    likelyCause = "Overspeed correction delay";
+    confidenceNote = "Medium confidence because the vehicle remains above target speed.";
+    tuningHint = "Review negative-error brake entry, traction release timing and downhill compensation.";
+end
 end
 
 function code = localEventCode(sampleEventType)
@@ -657,9 +917,10 @@ tableValue = cell2table(cell(0, 32), 'VariableNames', {'EventID', 'StartIndex', 
 end
 
 function tableValue = localEmptyDriverBadSegmentTable()
-tableValue = cell2table(cell(0, 13), 'VariableNames', {'DriverSegmentID', 'StartIndex', 'EndIndex', 'StartTime_s', 'EndTime_s', ...
+tableValue = cell2table(cell(0, 21), 'VariableNames', {'DriverSegmentID', 'StartIndex', 'EndIndex', 'StartTime_s', 'EndTime_s', ...
     'Duration_s', 'MaxAbsError_kmh', 'MeanAbsError_kmh', 'MeanDesiredSpeed_kmh', 'MeanVehicleSpeed_kmh', ...
-    'DominantGear', 'GradeClass', 'MeanSlope_pct'});
+    'DominantGear', 'GradeClass', 'MeanSlope_pct', 'MeanAccelPedal_pct', 'MeanBrakePedal_pct', ...
+    'PedalRateRMS_pctps', 'NearTorqueLimitShare_pct', 'ShiftInfluenced', 'LikelyCause', 'ConfidenceNote', 'TuningHint'});
 end
 
 function localSafeWriteTable(tableValue, filePath)
@@ -669,7 +930,8 @@ catch
 end
 end
 
-function badSegmentTable = localBuildDriverBadSegmentTable(t, desiredSpeed, vehSpeed, speedError, accPedal, brkPedal, gear, roadSlope, config)
+function badSegmentTable = localBuildDriverBadSegmentTable(t, desiredSpeed, vehSpeed, speedError, accPedal, brkPedal, ...
+    accPedalRate, brkPedalRate, gear, roadSlope, nearTorqueLimitMask, limitApplicableMask, shiftWindowMask, config)
 badSegmentTable = localEmptyDriverBadSegmentTable();
 if isempty(t) || ~any(isfinite(speedError))
     return;
@@ -682,7 +944,7 @@ if isempty(startIdx)
     return;
 end
 
-rows = cell(0, 13);
+rows = cell(0, 21);
 for iSeg = 1:numel(startIdx)
     idx = startIdx(iSeg):endIdx(iSeg);
     duration_s = max(t(endIdx(iSeg)) - t(startIdx(iSeg)), 0);
@@ -690,11 +952,20 @@ for iSeg = 1:numel(startIdx)
         continue;
     end
     meanSlope = mean(roadSlope(idx), 'omitnan');
+    meanError = mean(speedError(idx), 'omitnan');
+    meanAccel = mean(accPedal(idx), 'omitnan');
+    meanBrake = mean(brkPedal(idx), 'omitnan');
+    rateRms = localRmsFinite([accPedalRate(idx); brkPedalRate(idx)], true(2 * numel(idx), 1));
+    limitShare = 100 * RCA_FractionTrue(nearTorqueLimitMask(idx), limitApplicableMask(idx));
+    shiftInfluenced = any(shiftWindowMask(idx));
+    [likelyCause, confidenceNote, tuningHint] = localInterpretDriverBadSegment(meanError, meanSlope, ...
+        meanAccel, meanBrake, rateRms, limitShare, shiftInfluenced, speedError(idx), duration_s, config);
     rows(end + 1, :) = { ...
         size(rows, 1) + 1, startIdx(iSeg), endIdx(iSeg), t(startIdx(iSeg)), t(endIdx(iSeg)), duration_s, ...
         max(abs(speedError(idx)), [], 'omitnan'), mean(abs(speedError(idx)), 'omitnan'), ...
         mean(desiredSpeed(idx), 'omitnan'), mean(vehSpeed(idx), 'omitnan'), ...
-        localDominantValue(gear(idx)), localGradeClass(meanSlope, config), meanSlope}; %#ok<AGROW>
+        localDominantValue(gear(idx)), localGradeClass(meanSlope, config), meanSlope, meanAccel, meanBrake, ...
+        rateRms, limitShare, shiftInfluenced, string(likelyCause), string(confidenceNote), string(tuningHint)}; %#ok<AGROW>
 end
 
 if isempty(rows)
@@ -703,7 +974,8 @@ end
 
 badSegmentTable = cell2table(rows, 'VariableNames', {'DriverSegmentID', 'StartIndex', 'EndIndex', 'StartTime_s', 'EndTime_s', ...
     'Duration_s', 'MaxAbsError_kmh', 'MeanAbsError_kmh', 'MeanDesiredSpeed_kmh', 'MeanVehicleSpeed_kmh', ...
-    'DominantGear', 'GradeClass', 'MeanSlope_pct'});
+    'DominantGear', 'GradeClass', 'MeanSlope_pct', 'MeanAccelPedal_pct', 'MeanBrakePedal_pct', ...
+    'PedalRateRMS_pctps', 'NearTorqueLimitShare_pct', 'ShiftInfluenced', 'LikelyCause', 'ConfidenceNote', 'TuningHint'});
 end
 
 function plotFile = localPlotDriverOverview(outputFolder, t, desiredSpeed, vehSpeed, speedError, accPedal, brkPedal, gear, roadSlope, config)
@@ -869,6 +1141,114 @@ title('Mean Error per Gear');
 grid on;
 
 plotFile = string(RCA_SaveFigure(fig, outputFolder, 'Driver_Error_Maps', config));
+close(fig);
+end
+
+function plotFile = localPlotDriverStakeholderDashboard(outputFolder, t, desiredSpeed, vehSpeed, speedError, accPedal, brkPedal, accPedalRate, brkPedalRate, roadSlope, gear, nearTorqueLimitMask, config)
+plotFile = "";
+if ~(any(isfinite(speedError)) || any(isfinite(accPedal)) || any(isfinite(brkPedal)))
+    return;
+end
+
+movingMask = localMovingMask(vehSpeed, desiredSpeed, config);
+trackingMask = movingMask & isfinite(speedError);
+if any(trackingMask)
+    metricNames = {'MAE', 'RMSE', 'P95 |e|'};
+    metricValues = [mean(abs(speedError(trackingMask)), 'omitnan'), ...
+        sqrt(mean(speedError(trackingMask).^2, 'omitnan')), ...
+        RCA_Percentile(abs(speedError(trackingMask)), 95)];
+else
+    metricNames = {'MAE', 'RMSE', 'P95 |e|'};
+    metricValues = [NaN NaN NaN];
+end
+
+fig = figure('Color', 'w', 'Position', [100 100 1400 860]);
+
+subplot(2, 3, 1);
+bar(metricValues, 'FaceColor', config.Plot.Colors.Vehicle);
+set(gca, 'XTick', 1:numel(metricNames), 'XTickLabel', metricNames);
+ylabel('km/h');
+title('Tracking Quality KPIs');
+grid on;
+localAddCriteriaBox(gca, sprintf('Bands: tight +/- %.1f, target +/- %.1f, loose +/- %.1f km/h', ...
+    config.Thresholds.DriverErrorTightBand_kmh, config.Thresholds.DriverTrackingBand_kmh, config.Thresholds.DriverErrorLooseBand_kmh), config);
+
+subplot(2, 3, 2);
+validError = speedError(isfinite(speedError) & movingMask);
+if ~isempty(validError)
+    histogram(validError, 40, 'FaceColor', config.Plot.Colors.Vehicle, 'EdgeColor', 'none');
+end
+xline(config.Thresholds.DriverTrackingBand_kmh, '--', 'Color', [0.55 0.55 0.55]);
+xline(-config.Thresholds.DriverTrackingBand_kmh, '--', 'Color', [0.55 0.55 0.55]);
+xlabel('Speed error [km/h]');
+ylabel('Samples');
+title('Speed Error Distribution');
+grid on;
+
+subplot(2, 3, 3);
+hold on;
+if any(isfinite(roadSlope)) && any(isfinite(accPedal))
+    scatter(roadSlope(movingMask), accPedal(movingMask), 14, config.Plot.Colors.Vehicle, 'filled', 'MarkerFaceAlpha', 0.45);
+end
+xlabel('Road slope [%]');
+ylabel('Accelerator pedal [%]');
+title('Feedforward Plausibility: Pedal vs Grade');
+grid on;
+localAddCriteriaBox(gca, 'Expected trend: uphill grade should generally increase accelerator demand.', config);
+
+subplot(2, 3, 4);
+hold on;
+if any(isfinite(accPedalRate))
+    plot(t, abs(accPedalRate), 'Color', config.Plot.Colors.Vehicle, 'LineWidth', 1.0);
+end
+if any(isfinite(brkPedalRate))
+    plot(t, abs(brkPedalRate), 'Color', config.Plot.Colors.Warning, 'LineWidth', 1.0);
+end
+yline(config.Thresholds.DriverPedalRateWarn_pctps, '--', 'Color', [0.45 0.45 0.45]);
+ylabel('|Pedal rate| [%/s]');
+xlabel('Time [s]');
+title('Pedal Smoothness / Chatter Indicator');
+legend(localPedalLegend(any(isfinite(accPedalRate)), any(isfinite(brkPedalRate))), 'Location', 'best');
+grid on;
+
+subplot(2, 3, 5);
+validGear = movingMask & isfinite(gear) & isfinite(speedError);
+if any(validGear)
+    gearValues = unique(gear(validGear));
+    gearValues = gearValues(:)';
+    gearMae = NaN(size(gearValues));
+    for iGear = 1:numel(gearValues)
+        gearMae(iGear) = mean(abs(speedError(validGear & gear == gearValues(iGear))), 'omitnan');
+    end
+    bar(gearValues, gearMae, 'FaceColor', config.Plot.Colors.Gear);
+end
+xlabel('Gear [-]');
+ylabel('Mean |error| [km/h]');
+title('Robustness by Gear');
+grid on;
+
+subplot(2, 3, 6);
+hold on;
+if any(isfinite(speedError))
+    plot(t, speedError, 'Color', config.Plot.Colors.Vehicle, 'LineWidth', 1.0);
+end
+if any(nearTorqueLimitMask)
+    yLimits = ylim;
+    limitMask = nearTorqueLimitMask(:) & isfinite(t);
+    limitStarts = find(limitMask & ~[false; limitMask(1:end-1)]);
+    limitEnds = find(limitMask & ~[limitMask(2:end); false]);
+    localShadeIntervals(gca, t(limitStarts), t(limitEnds), [0.97 0.90 0.75], 0.65);
+    ylim(yLimits);
+end
+yline(config.Thresholds.DriverTrackingBand_kmh, '--', 'Color', [0.55 0.55 0.55]);
+yline(-config.Thresholds.DriverTrackingBand_kmh, '--', 'Color', [0.55 0.55 0.55]);
+xlabel('Time [s]');
+ylabel('Speed error [km/h]');
+title('Tracking Error with Torque-Limit Context');
+grid on;
+
+sgtitle('Driver Controller Stakeholder Dashboard');
+plotFile = string(RCA_SaveFigure(fig, outputFolder, 'Driver_Stakeholder_Dashboard', config));
 close(fig);
 end
 
@@ -1059,20 +1439,20 @@ function [handles, labels] = localEventLegend(refHandle, actHandle, accPatch, br
 handles = [];
 labels = {};
 if isgraphics(refHandle)
-    handles(end + 1) = refHandle; %#ok<AGROW>
-    labels{end + 1} = 'v_{ref}'; %#ok<AGROW>
+    handles(end + 1) = refHandle;
+    labels{end + 1} = 'v_{ref}';
 end
 if isgraphics(actHandle)
-    handles(end + 1) = actHandle; %#ok<AGROW>
-    labels{end + 1} = 'v_{act}'; %#ok<AGROW>
+    handles(end + 1) = actHandle;
+    labels{end + 1} = 'v_{act}';
 end
 if isgraphics(accPatch)
-    handles(end + 1) = accPatch; %#ok<AGROW>
-    labels{end + 1} = 'Accel events'; %#ok<AGROW>
+    handles(end + 1) = accPatch;
+    labels{end + 1} = 'Accel events';
 end
 if isgraphics(brkPatch)
-    handles(end + 1) = brkPatch; %#ok<AGROW>
-    labels{end + 1} = 'Brake events'; %#ok<AGROW>
+    handles(end + 1) = brkPatch;
+    labels{end + 1} = 'Brake events';
 end
 end
 
