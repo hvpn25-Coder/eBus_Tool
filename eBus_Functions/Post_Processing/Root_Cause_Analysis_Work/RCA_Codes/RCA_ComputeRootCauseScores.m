@@ -139,12 +139,10 @@ switch char(causeName)
         owner = "Battery";
     case {'BatteryLimit'}
         owner = "Battery Management System";
-    case {'GearOperation', 'TransmissionLoss'}
-        owner = "Transmission";
+    case {'GearOperation', 'TransmissionLoss', 'MotorInverter'}
+        owner = "Electric Drive Unit";
     case {'ControllerTracking'}
         owner = "Power Train Controller";
-    case {'MotorInverter'}
-        owner = "Electric Drive";
     case {'RegenMiss'}
         owner = "Pneumatic Brake System";
     otherwise
@@ -167,8 +165,8 @@ switch char(causeName)
         recommendation = "Revisit charge/discharge limit calibration and battery capability assumptions to reduce active limiting.";
         evidence = "Battery power/current frequently run near configured limits.";
     case 'GearOperation'
-        recommendation = "Retune shift schedule and hysteresis to reduce hunting and keep motor operation inside a more efficient region.";
-        evidence = "Poor segments show high shift density or gear instability.";
+        recommendation = "Retune Electric Drive Unit shift schedule and hysteresis to reduce hunting and keep motor operation inside a more efficient region.";
+        evidence = "Poor segments show high shift density, gear instability, or gear-dependent motor operating-region penalties.";
     case 'RollingResistance'
         recommendation = "Recheck tyre rolling-loss assumptions and wheel-loss modelling against expected vehicle configuration.";
         evidence = "Rolling resistance is a repeated efficiency driver.";
@@ -179,11 +177,11 @@ switch char(causeName)
         recommendation = "Tighten torque/speed tracking logic and separate supervisory limits from response delays.";
         evidence = "Tracking shortfall is a repeated poor-performance driver.";
     case 'MotorInverter'
-        recommendation = "Shift operating points toward a better motor/inverter efficiency region or recalibrate current split and torque scheduling.";
-        evidence = "Motor loss share is repeatedly high.";
+        recommendation = "Review Electric Drive Unit torque split, motor operating region, and current scheduling to reduce motor/inverter loss contribution.";
+        evidence = "Motor/inverter loss share is repeatedly high inside the Electric Drive Unit energy path.";
     case 'TransmissionLoss'
-        recommendation = "Review gearbox loss model and ratio usage to cut transmission-specific energy loss.";
-        evidence = "Transmission loss share is repeatedly high.";
+        recommendation = "Review Electric Drive Unit gearbox loss model, ratio usage, and shift torque handover to cut driveline-specific energy loss.";
+        evidence = "Gearbox/transmission loss share is repeatedly high inside the Electric Drive Unit energy path.";
     case 'RegenMiss'
         recommendation = "Improve regen blending and charge-acceptance coordination so braking opportunity is converted to recovered energy.";
         evidence = "Recovered braking fraction is repeatedly poor.";

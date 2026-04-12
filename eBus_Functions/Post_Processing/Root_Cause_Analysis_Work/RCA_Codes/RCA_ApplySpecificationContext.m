@@ -70,10 +70,21 @@ end
 function tf = localMatchesSubsystem(subsystemValues, targetName)
 subsystemValues = string(subsystemValues(:));
 targetKey = localNormalizeName(targetName);
+targetAliases = localSubsystemSpecAliases(targetKey);
 tf = false(size(subsystemValues));
 for iValue = 1:numel(subsystemValues)
-    tf(iValue) = localNormalizeName(subsystemValues(iValue)) == targetKey;
+    tf(iValue) = any(localNormalizeName(subsystemValues(iValue)) == targetAliases);
 end
+end
+
+function aliases = localSubsystemSpecAliases(targetKey)
+aliases = string(targetKey);
+switch string(targetKey)
+    case "ELECTRICDRIVEUNIT"
+        aliases = [aliases, "ELECTRICDRIVE", "EDRIVE", "MOTORDRIVE", ...
+            "TRANSMISSION", "GEARBOX", "FINALDRIVE", "DIFFERENTIAL", "AXLEDRIVE"];
+end
+aliases = unique(aliases);
 end
 
 function key = localNormalizeName(nameValue)

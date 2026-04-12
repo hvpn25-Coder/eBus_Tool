@@ -64,7 +64,7 @@ rows = RCA_AddKPI(rows, 'High Power Resistor Energy', hprEnergy, 'kWh', 'Energy'
 rows = RCA_AddKPI(rows, 'Traction Mechanical Energy', tractionEnergy, 'kWh', 'Energy', 'Vehicle', 'traction force + vehicle speed', 'Wheel-end mechanical work.');
 rows = RCA_AddKPI(rows, 'Battery Loss Energy', battLossEnergy, 'kWh', 'Losses', 'Vehicle', 'batt_loss_pwr', 'Battery internal/system loss integral.');
 rows = RCA_AddKPI(rows, 'Motor/Inverter Loss Energy', motorLossEnergy, 'kWh', 'Losses', 'Vehicle', 'emot loss power', 'Electric drive loss integral.');
-rows = RCA_AddKPI(rows, 'Transmission Loss Energy', gbxLossEnergy, 'kWh', 'Losses', 'Vehicle', 'gbx_pwr_loss', 'Gearbox loss integral.');
+rows = RCA_AddKPI(rows, 'EDU Gearbox Loss Energy', gbxLossEnergy, 'kWh', 'Losses', 'Vehicle', 'gbx_pwr_loss', 'Electric Drive Unit gearbox/transmission loss integral.');
 rows = RCA_AddKPI(rows, 'Friction Brake Energy', fricEnergy, 'kWh', 'Losses', 'Vehicle', 'fric_brk_pwr', 'Friction dissipation integral.');
 if dischargeEnergy > 0
     batteryToWheelEff = 100 * tractionEnergy / dischargeEnergy;

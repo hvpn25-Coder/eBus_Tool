@@ -84,7 +84,7 @@ legend({'Battery discharge', 'Battery recovery', 'Net battery energy', 'Auxiliar
 grid on;
 
 subplot(3, 1, 3);
-bar(categorical({'Battery loss', 'Motor loss', 'Transmission loss', 'Friction brake', 'Auxiliary'}), ...
+bar(categorical({'Battery loss', 'Motor loss', 'EDU gearbox loss', 'Friction brake', 'Auxiliary'}), ...
     [RCA_TrapzFinite(t, max(derived.batteryLossPower_kW, 0)) / 3600, ...
     RCA_TrapzFinite(t, max(derived.motorLossPower_kW, 0)) / 3600, ...
     RCA_TrapzFinite(t, max(derived.gearboxLossPower_kW, 0)) / 3600, ...
@@ -182,7 +182,7 @@ if energyData.HPR_kWh > 0
     localDrawEnergyNode(ax, [0.46 0.73 0.10 0.10], sprintf('HPR\n%.2f kWh', energyData.HPR_kWh), config.Plot.Colors.Demand, 10);
 end
 localDrawEnergyNode(ax, [0.58 0.73 0.16 0.10], sprintf('Motor / Inverter Loss\n%.2f kWh', energyData.MotorLoss_kWh), config.Plot.Colors.Warning, 10);
-localDrawEnergyNode(ax, [0.79 0.73 0.16 0.10], sprintf('Transmission Loss\n%.2f kWh', energyData.GbxLoss_kWh), config.Plot.Colors.Warning, 10);
+localDrawEnergyNode(ax, [0.79 0.73 0.16 0.10], sprintf('EDU Gearbox Loss\n%.2f kWh', energyData.GbxLoss_kWh), config.Plot.Colors.Warning, 10);
 
 localDrawEnergyNode(ax, [0.39 0.25 0.22 0.11], sprintf('Braking Energy Split\n%.2f kWh', energyData.BrakeSplit_kWh), config.Plot.Colors.Neutral, 11);
 localDrawEnergyNode(ax, [0.16 0.05 0.20 0.11], sprintf('Battery Regen\n%.2f kWh', energyData.Regen_kWh), config.Plot.Colors.Battery, 11);

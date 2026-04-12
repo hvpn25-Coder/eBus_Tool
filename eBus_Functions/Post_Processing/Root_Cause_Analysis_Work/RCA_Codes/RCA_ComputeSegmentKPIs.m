@@ -138,7 +138,7 @@ for iSeg = 1:height(segments)
     segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Loss Share', lossShare, '%', 'Segment', 'Vehicle', 'loss powers + battery power', shareStatusNote);
     segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Power Balance MAE', powerBalanceMae, 'kW', 'Segment', 'Vehicle', 'battery power - (motor electrical + auxiliary + HPR)', 'Mean absolute electrical power-balance residual inside the segment.');
     segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Force Balance MAE', forceBalanceMae, 'N', 'Segment', 'Vehicle', 'wheel force - (vehicle propulsion force - friction brake force)', 'Mean absolute wheel-path force-balance residual inside the segment.');
-    segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Gear Shift Rate', shiftRate, 'shifts/km', 'Segment', 'Transmission', 'gr_num + segment distance', 'Gear change density inside the segment.');
+    segmentRows = localAddSegmentKPI(segmentRows, segments.SegmentID(iSeg), 'Segment Gear Shift Rate', shiftRate, 'shifts/km', 'Segment', 'Electric Drive Unit', 'gr_num + segment distance', 'Gear change density inside the segment.');
 end
 
 segmentSummary = cell2table(summaryRows, 'VariableNames', {'SegmentID', 'StartIndex', 'EndIndex', ...
