@@ -2588,13 +2588,326 @@ end
 
 function localWriteRootCauseSummarySection(doc, selection, reportData, state)
 localAddHeading(selection, '15. Root Cause Summary Table', 1);
-selection.TypeText('The table below is intended to be the high-value management and owner handoff sheet. Each line should correspond to one issue that warrants action, with clear evidence and ownership.');
+selection.TypeText(['This section starts with a bad-segment overview dashboard so reviewers can see the population-level RCA pattern before reading individual segment pages. ', ...
+    'The owner handoff table then converts the repeated patterns into prioritized engineering actions.']);
 selection.TypeParagraph;
 
+localWriteBadSegmentOverviewDashboard(doc, selection, reportData, state);
+
 rootCauseTable = localBuildRootCauseSummaryTable(reportData, state);
+localAddHeading(selection, '15.2 Root Cause Owner Handoff Table', 2);
+selection.TypeText('The table below is intended to be the high-value management and owner handoff sheet. Each line should correspond to one issue that warrants action, with clear evidence and ownership.');
+selection.TypeParagraph;
 localAddWordTable(doc, selection, 'Root cause summary and action ownership table', ...
     {'Issue ID', 'Symptom', 'Affected metric / KPI', 'When it occurs', 'Vehicle impact', 'Likely root cause', ...
     'Supporting evidence', 'Confidence level', 'Recommended owner', 'Recommended action', 'Priority'}, rootCauseTable);
+end
+
+function localWriteBadSegmentOverviewDashboard(doc, selection, reportData, state)
+localAddHeading(selection, '15.1 Bad Segment Overview Dashboard', 2);
+selection.TypeText(['This dashboard summarizes the bad-segment population before the detailed segment pages in Appendix 18.5. ', ...
+    'It is designed for quick triage: how many segments are bad, which symptoms repeat, which root causes dominate, which segments deserve first review, and which operating conditions are common.']);
+selection.TypeParagraph;
+
+if ~state.UseActualData || height(reportData.SegmentSummary) == 0
+    localAddWordTable(doc, selection, 'Bad segment overview dashboard', ...
+        {'Dashboard item', 'Value', 'Engineering interpretation'}, ...
+        {'Bad segment count', '[Insert count]', '[Insert what this means for the run]'; ...
+        'Dominant issue type', '[Insert issue]', '[Insert dominant vehicle-level symptom]'; ...
+        'Dominant root cause', '[Insert cause]', '[Insert recommended owner or action focus]'});
+    return;
+end
+
+localAddWordTable(doc, selection, 'Bad segment overview dashboard', ...
+    {'Dashboard item', 'Value', 'Engineering interpretation'}, localBuildBadSegmentOverviewRows(reportData), localSegmentTableStyle());
+
+hotspotRows = localBuildBadSegmentHotspotRows(reportData, 8);
+if ~isempty(hotspotRows)
+    localAddWordTable(doc, selection, 'Bad segment hotspot shortlist', ...
+        {'Segment', 'Time window', 'Issue', 'Primary cause', 'Contribution', 'Confidence', 'Operating condition', 'Action focus'}, ...
+        hotspotRows, localSegmentTableStyle());
+end
+
+causeRows = localBuildBadSegmentCauseParetoRows(reportData, 8);
+if ~isempty(causeRows)
+    localAddWordTable(doc, selection, 'Bad segment cause Pareto dashboard', ...
+        {'Cause', 'Appearances', 'Rank-1 count', 'Mean contribution', 'Max contribution', 'Likely owner / action focus'}, ...
+        causeRows, localSegmentTableStyle());
+end
+
+conditionRows = localBuildBadSegmentConditionRows(reportData);
+if ~isempty(conditionRows)
+    localAddWordTable(doc, selection, 'Bad segment operating-condition patterns', ...
+        {'Pattern', 'Dashboard value', 'Engineering interpretation'}, conditionRows, localSegmentTableStyle());
+end
+end
+
+function rows = localBuildBadSegmentOverviewRows(reportData)
+badTable = reportData.BadSegmentTable;
+segmentTable = reportData.SegmentSummary;
+totalSegments = height(segmentTable);
+badCount = height(badTable);
+badShare = 100 * badCount / max(totalSegments, 1);
+[dominantIssue, dominantIssueCount] = localMostCommonText(localTableColumnAsString(badTable, 'IssueType'));
+[dominantCause, dominantCauseCount] = localMostCommonText(localTableColumnAsString(badTable, 'PrimaryCause'));
+confidenceValues = localTableColumnAsString(badTable, 'Confidence');
+highConfidenceShare = 100 * sum(strcmpi(confidenceValues, "High")) / max(numel(confidenceValues), 1);
+primaryContribution = localTableColumnAsDouble(badTable, 'PrimaryContribution_pct');
+meanContribution = mean(primaryContribution, 'omitnan');
+worstSegmentText = localWorstBadSegmentText(reportData);
+
+rows = { ...
+    'Total detected segments', sprintf('%d', totalSegments), 'Trip segmentation population used as the denominator for bad-segment share.'; ...
+    'Bad segments requiring RCA review', sprintf('%d of %d (%.1f%%)', badCount, totalSegments, badShare), 'Shows how concentrated or widespread the poor-behavior population is.'; ...
+    'Dominant bad-segment symptom', sprintf('%s (%d segments)', dominantIssue, dominantIssueCount), 'Primary symptom pattern to address first at vehicle level.'; ...
+    'Most repeated primary root cause', sprintf('%s (%d segments)', dominantCause, dominantCauseCount), 'Likely repeated owner/action theme across the drive cycle.'; ...
+    'High-confidence bad-segment share', sprintf('%.1f%%', highConfidenceShare), 'Indicates how much of the bad-segment set has strong enough evidence for direct action.'; ...
+    'Mean primary-cause contribution', sprintf('%.1f%%', meanContribution), 'Average share assigned to the top-ranked cause after root-cause score normalization.'; ...
+    'Worst segment to review first', worstSegmentText, 'Prioritize this segment for detailed figure review and calibration/model debugging.'};
+end
+
+function rows = localBuildBadSegmentHotspotRows(reportData, maxRows)
+rows = {};
+badTable = reportData.BadSegmentTable;
+if isempty(badTable) || height(badTable) == 0
+    return;
+end
+
+sortValues = localTableColumnAsDouble(badTable, 'PrimaryContribution_pct');
+if all(isnan(sortValues))
+    sortValues = (height(badTable):-1:1)';
+end
+[~, orderIdx] = sort(sortValues, 'descend');
+count = min(maxRows, numel(orderIdx));
+for iRow = 1:count
+    badRow = badTable(orderIdx(iRow), :);
+    segmentId = localRowFieldNumber(badRow, {'SegmentID'}, NaN);
+    segmentRow = localFindSegmentSummaryRow(reportData.SegmentSummary, segmentId);
+    rows(end + 1, :) = { ...
+        sprintf('SEG-%02.0f', segmentId), ...
+        sprintf('%.1f s to %.1f s', localRowFieldNumber(badRow, {'StartTime_s'}, NaN), localRowFieldNumber(badRow, {'EndTime_s'}, NaN)), ...
+        localRowFieldText(badRow, {'IssueType'}, 'Unknown'), ...
+        localRowFieldText(badRow, {'PrimaryCause'}, 'Unknown'), ...
+        sprintf('%.1f%%', localRowFieldNumber(badRow, {'PrimaryContribution_pct'}, NaN)), ...
+        localRowFieldText(badRow, {'Confidence'}, 'Unknown'), ...
+        localBuildSegmentConditionText(segmentRow), ...
+        localLookupRecommendation(reportData, localRowFieldText(badRow, {'PrimaryCause'}, 'Unknown'))}; %#ok<AGROW>
+end
+end
+
+function rows = localBuildBadSegmentCauseParetoRows(reportData, maxRows)
+rows = {};
+rankingTable = reportData.RootCauseRanking;
+badTable = reportData.BadSegmentTable;
+if isempty(rankingTable) || height(rankingTable) == 0 || ~ismember('CauseName', rankingTable.Properties.VariableNames)
+    return;
+end
+
+if height(badTable) > 0 && ismember('SegmentID', rankingTable.Properties.VariableNames) && ismember('SegmentID', badTable.Properties.VariableNames)
+    badSegmentIds = unique(badTable.SegmentID);
+    keepMask = ismember(rankingTable.SegmentID, badSegmentIds);
+    rankingTable = rankingTable(keepMask, :);
+end
+if height(rankingTable) == 0
+    return;
+end
+
+causeNames = localTableColumnAsString(rankingTable, 'CauseName');
+uniqueCauses = unique(causeNames(causeNames ~= ""), 'stable');
+if isempty(uniqueCauses)
+    return;
+end
+
+pareto = cell(numel(uniqueCauses), 6);
+sortMetric = NaN(numel(uniqueCauses), 1);
+contribution = localTableColumnAsDouble(rankingTable, 'Contribution_pct');
+causeRank = localTableColumnAsDouble(rankingTable, 'CauseRank');
+for iCause = 1:numel(uniqueCauses)
+    causeMask = causeNames == uniqueCauses(iCause);
+    appearances = sum(causeMask);
+    rankOneCount = sum(causeMask & causeRank == 1);
+    meanContribution = mean(contribution(causeMask), 'omitnan');
+    maxContribution = max(contribution(causeMask), [], 'omitnan');
+    causeContribution = contribution(causeMask);
+    sortMetric(iCause) = sum(causeContribution(isfinite(causeContribution)));
+    owner = localLookupRecommendationOwner(reportData, char(uniqueCauses(iCause)));
+    action = localLookupRecommendation(reportData, char(uniqueCauses(iCause)));
+    pareto(iCause, :) = {char(uniqueCauses(iCause)), sprintf('%d', appearances), sprintf('%d', rankOneCount), ...
+        sprintf('%.1f%%', meanContribution), sprintf('%.1f%%', maxContribution), sprintf('%s: %s', owner, action)};
+end
+
+[~, orderIdx] = sort(sortMetric, 'descend');
+count = min(maxRows, numel(orderIdx));
+rows = pareto(orderIdx(1:count), :);
+end
+
+function rows = localBuildBadSegmentConditionRows(reportData)
+rows = {};
+badTable = reportData.BadSegmentTable;
+segmentTable = reportData.SegmentSummary;
+if isempty(badTable) || height(badTable) == 0 || isempty(segmentTable) || height(segmentTable) == 0 || ...
+        ~ismember('SegmentID', badTable.Properties.VariableNames) || ~ismember('SegmentID', segmentTable.Properties.VariableNames)
+    return;
+end
+
+badMask = ismember(segmentTable.SegmentID, badTable.SegmentID);
+badSegments = segmentTable(badMask, :);
+if height(badSegments) == 0
+    return;
+end
+
+rows(end + 1, :) = localConditionPatternRow(badSegments, 'MotionClass', 'Most common motion class', ...
+    'Shows whether bad behavior is concentrated in acceleration, cruise, braking, or stop/start operation.'); %#ok<AGROW>
+rows(end + 1, :) = localConditionPatternRow(badSegments, 'GradeClass', 'Most common grade class', ...
+    'Separates route-load-driven issues from subsystem or calibration issues under flat operation.'); %#ok<AGROW>
+rows(end + 1, :) = localConditionPatternRow(badSegments, 'AuxClass', 'Most common auxiliary-load class', ...
+    'Identifies whether auxiliary load is repeatedly present when bad segments occur.'); %#ok<AGROW>
+rows(end + 1, :) = localConditionPatternRow(badSegments, 'DominantGear', 'Most common dominant gear', ...
+    'Highlights whether poor behavior clusters around a specific gear or ratio region.'); %#ok<AGROW>
+rows(end + 1, :) = localWorstMetricRow(badSegments, 'Wh_per_km', 'Highest energy-intensity bad segment', 'Wh/km', ...
+    'Use this segment to inspect efficiency/root-cause evidence first.'); %#ok<AGROW>
+rows(end + 1, :) = localWorstMetricRow(badSegments, 'TrackingMAE_kmh', 'Worst tracking bad segment', 'km/h MAE', ...
+    'Use this segment to inspect performance/control evidence first.'); %#ok<AGROW>
+rows(end + 1, :) = localWorstMetricRow(badSegments, 'LossShare_pct', 'Highest loss-share bad segment', '%', ...
+    'Use this segment to inspect subsystem loss attribution first.'); %#ok<AGROW>
+end
+
+function values = localTableColumnAsString(tableValue, variableName)
+values = strings(0, 1);
+if isempty(tableValue) || ~istable(tableValue) || height(tableValue) == 0 || ~ismember(variableName, tableValue.Properties.VariableNames)
+    return;
+end
+try
+    raw = tableValue.(variableName);
+    if iscell(raw)
+        values = strings(numel(raw), 1);
+        for iValue = 1:numel(raw)
+            values(iValue) = string(raw{iValue});
+        end
+    else
+        values = string(raw(:));
+    end
+catch
+    values = strings(0, 1);
+end
+values = strtrim(values(:));
+end
+
+function values = localTableColumnAsDouble(tableValue, variableName)
+values = NaN(0, 1);
+if isempty(tableValue) || ~istable(tableValue) || height(tableValue) == 0 || ~ismember(variableName, tableValue.Properties.VariableNames)
+    return;
+end
+raw = tableValue.(variableName);
+values = NaN(numel(raw), 1);
+for iValue = 1:numel(raw)
+    try
+        if iscell(raw)
+            candidate = raw{iValue};
+        else
+            candidate = raw(iValue);
+        end
+        if isnumeric(candidate) || islogical(candidate)
+            values(iValue) = double(candidate(1));
+        else
+            parsed = str2double(string(candidate(1)));
+            if ~isnan(parsed)
+                values(iValue) = parsed;
+            end
+        end
+    catch
+        values(iValue) = NaN;
+    end
+end
+end
+
+function [categoryText, categoryCount] = localMostCommonText(values)
+values = string(values(:));
+values = values(values ~= "" & ~strcmpi(values, "NaN") & ~strcmpi(values, "missing"));
+if isempty(values)
+    categoryText = "Not available";
+    categoryCount = 0;
+    return;
+end
+uniqueValues = unique(values, 'stable');
+counts = zeros(numel(uniqueValues), 1);
+for iValue = 1:numel(uniqueValues)
+    counts(iValue) = sum(values == uniqueValues(iValue));
+end
+[categoryCount, idx] = max(counts);
+categoryText = uniqueValues(idx);
+end
+
+function textValue = localWorstBadSegmentText(reportData)
+badTable = reportData.BadSegmentTable;
+if isempty(badTable) || height(badTable) == 0
+    textValue = 'No bad segment identified';
+    return;
+end
+contribution = localTableColumnAsDouble(badTable, 'PrimaryContribution_pct');
+if isempty(contribution) || all(isnan(contribution))
+    idx = 1;
+else
+    [~, idx] = max(contribution);
+end
+row = badTable(idx, :);
+textValue = sprintf('SEG-%02.0f, %s, %s, %s contribution %.1f%%', ...
+    localRowFieldNumber(row, {'SegmentID'}, idx), ...
+    localRowFieldText(row, {'IssueType'}, 'Unknown issue'), ...
+    localRowFieldText(row, {'PrimaryCause'}, 'Unknown cause'), ...
+    localRowFieldText(row, {'Confidence'}, 'Unknown confidence'), ...
+    localRowFieldNumber(row, {'PrimaryContribution_pct'}, NaN));
+end
+
+function segmentRow = localFindSegmentSummaryRow(segmentTable, segmentId)
+segmentRow = [];
+if isempty(segmentTable) || ~istable(segmentTable) || height(segmentTable) == 0 || ...
+        ~ismember('SegmentID', segmentTable.Properties.VariableNames) || ~isfinite(segmentId)
+    return;
+end
+idx = find(segmentTable.SegmentID == segmentId, 1, 'first');
+if ~isempty(idx)
+    segmentRow = segmentTable(idx, :);
+end
+end
+
+function textValue = localBuildSegmentConditionText(segmentRow)
+if isempty(segmentRow)
+    textValue = 'Segment condition not available';
+    return;
+end
+textValue = sprintf('%s, %s, %s, gear %s; %.0f Wh/km, %.1f km/h tracking MAE, %.1f%% loss share', ...
+    localRowFieldText(segmentRow, {'MotionClass'}, 'Unknown motion'), ...
+    localRowFieldText(segmentRow, {'GradeClass'}, 'Unknown grade'), ...
+    localRowFieldText(segmentRow, {'AuxClass'}, 'Unknown aux'), ...
+    localRowFieldText(segmentRow, {'DominantGear'}, 'n/a'), ...
+    localRowFieldNumber(segmentRow, {'Wh_per_km'}, NaN), ...
+    localRowFieldNumber(segmentRow, {'TrackingMAE_kmh'}, NaN), ...
+    localRowFieldNumber(segmentRow, {'LossShare_pct'}, NaN));
+end
+
+function row = localConditionPatternRow(tableValue, fieldName, labelText, interpretationText)
+if ~ismember(fieldName, tableValue.Properties.VariableNames)
+    row = {labelText, 'Not available', interpretationText};
+    return;
+end
+[categoryText, categoryCount] = localMostCommonText(localTableColumnAsString(tableValue, fieldName));
+row = {labelText, sprintf('%s (%d bad segments)', categoryText, categoryCount), interpretationText};
+end
+
+function row = localWorstMetricRow(tableValue, fieldName, labelText, unitText, interpretationText)
+if ~ismember(fieldName, tableValue.Properties.VariableNames)
+    row = {labelText, 'Not available', interpretationText};
+    return;
+end
+values = localTableColumnAsDouble(tableValue, fieldName);
+if isempty(values) || all(isnan(values))
+    row = {labelText, 'Not available', interpretationText};
+    return;
+end
+[metricValue, idx] = max(values);
+segmentId = localRowFieldNumber(tableValue(idx, :), {'SegmentID'}, idx);
+row = {labelText, sprintf('SEG-%02.0f: %.2f %s', segmentId, metricValue, unitText), interpretationText};
 end
 
 function rows = localBuildRootCauseSummaryTable(reportData, state)
