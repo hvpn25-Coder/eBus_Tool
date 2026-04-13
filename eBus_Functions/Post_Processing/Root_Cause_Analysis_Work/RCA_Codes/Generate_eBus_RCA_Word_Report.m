@@ -2741,6 +2741,7 @@ end
 
 selection.TypeText(sprintf(['This appendix contains one RCA page for each segment identified by the vehicle segmentation logic. ', ...
     'Each page captures the segment summary, whether the segment is classified as bad, the most likely root causes, and any matching segment-level figure evidence. ', ...
+    'The bad-segment narrative is written once above the ranking table; the ranking table keeps only rank, cause, contribution, confidence, and evidence signals to avoid repeated narrative text. ', ...
     'Total segments included: %d.'], height(reportData.SegmentSummary)));
 selection.TypeParagraph;
 
@@ -2807,7 +2808,7 @@ mask = rootCauseTable.SegmentID == segmentId;
 if ~any(mask)
     return;
 end
-candidateColumns = {'CauseRank', 'CauseName', 'Contribution_pct', 'Confidence', 'EvidenceSignals', 'Narrative'};
+candidateColumns = {'CauseRank', 'CauseName', 'Contribution_pct', 'Confidence', 'EvidenceSignals'};
 availableColumns = candidateColumns(ismember(candidateColumns, rootCauseTable.Properties.VariableNames));
 causeTable = rootCauseTable(mask, availableColumns);
 if ismember('Contribution_pct', causeTable.Properties.VariableNames)
