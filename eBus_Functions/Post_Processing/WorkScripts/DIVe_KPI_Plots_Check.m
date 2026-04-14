@@ -1556,7 +1556,7 @@ end
 
 function replaceInTextFile(filePath, placeholderMap)
 content = fileread(filePath);
-keys = getOrderedPlaceholderKeys(placeholderMap);
+keys = getReferencedPlaceholderKeysInText(content, placeholderMap);
 for i = 1:numel(keys)
     key = keys{i};
     content = strrep(content, key, placeholderMap(key));
@@ -1576,7 +1576,7 @@ if isempty(xmlFiles)
     return;
 end
 
-keys = getOrderedPlaceholderKeys(placeholderMap);
+keys = getReferencedPlaceholderKeysInXmlFiles(xmlFiles, placeholderMap);
 xmlSafeValues = containers.Map('KeyType', 'char', 'ValueType', 'char');
 for i = 1:numel(keys)
     k = keys{i};
@@ -1712,7 +1712,11 @@ docObj = [];
 try
     wordApp = actxserver('Word.Application');
     docObj = wordApp.Documents.Open(docPath, false, false, false);
-    keys = getOrderedPlaceholderKeys(placeholderMap);
+    try
+        keys = getReferencedPlaceholderKeysInText(string(docObj.Content.Text), placeholderMap);
+    catch
+        keys = getOrderedPlaceholderKeys(placeholderMap);
+    end
     for i = 1:numel(keys)
         token = string(keys{i});
         replacement = string(placeholderMap(keys{i}));
@@ -1956,7 +1960,7 @@ if strlength(rawText) == 0
 end
 
 updatedText = rawText;
-keys = getOrderedPlaceholderKeys(placeholderMap);
+keys = getReferencedPlaceholderKeysInText(rawText, placeholderMap);
 for i = 1:numel(keys)
     token = string(keys{i});
     value = string(placeholderMap(keys{i}));
@@ -2020,9 +2024,63 @@ if isempty(keys)
     return;
 end
 
+keys = keys(:);
 keyStrings = string(keys(:));
 [~, order] = sortrows([-strlength(keyStrings), (1:numel(keyStrings)).']);
 keys = keys(order);
+end
+
+function keys = getReferencedPlaceholderKeysInText(textIn, placeholderMap)
+tokens = extractTextPlaceholderTokens(textIn);
+keys = getPlaceholderKeysForTokens(tokens, placeholderMap);
+end
+
+function keys = getReferencedPlaceholderKeysInXmlFiles(xmlFiles, placeholderMap)
+tokens = strings(0, 1);
+for iFile = 1:numel(xmlFiles)
+    xmlPath = fullfile(xmlFiles(iFile).folder, xmlFiles(iFile).name);
+    try
+        content = fileread(xmlPath);
+    catch
+        continue;
+    end
+    tokens = [tokens; extractTextPlaceholderTokens(content); ...
+        extractTextPlaceholderTokens(stripXmlTagsForPlaceholderScan(content))]; %#ok<AGROW>
+end
+tokens = unique(tokens, 'stable');
+keys = getPlaceholderKeysForTokens(tokens, placeholderMap);
+end
+
+function keys = getPlaceholderKeysForTokens(tokens, placeholderMap)
+keys = getOrderedPlaceholderKeys(placeholderMap);
+if isempty(keys) || isempty(tokens)
+    keys = cell(0, 1);
+    return;
+end
+
+tokenStrings = string(tokens(:));
+keyStrings = string(keys(:));
+keys = keys(ismember(keyStrings, tokenStrings));
+end
+
+function tokens = extractTextPlaceholderTokens(textIn)
+txt = char(normalizeWordPlaceholderText(textIn));
+if isempty(txt)
+    tokens = strings(0, 1);
+    return;
+end
+
+matches = regexp(txt, '(?<![\w\*])\*(?![Ff]igure\b)[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*', 'match');
+if isempty(matches)
+    tokens = strings(0, 1);
+    return;
+end
+tokens = unique(string(matches), 'stable');
+tokens = tokens(:);
+end
+
+function scanText = stripXmlTagsForPlaceholderScan(xmlText)
+scanText = regexprep(char(string(xmlText)), '<[^>]+>', '');
 end
 
 function txt = getWordShapeText(shp)
@@ -2690,7 +2748,7 @@ nTempAssets = 0;
 try
     requestedKeys = getRequestedFigureKeysFromPpt(pptPath, plotConfig);
     if isempty(requestedKeys)
-        requestedKeys = getAllFigureKeys(plotConfig);
+        return;
     end
 
     tempAssets = cell(numel(requestedKeys) + 4, 1);
@@ -2773,7 +2831,8 @@ try
     for i = 1:numel(xmlFiles)
         xmlPath = fullfile(xmlFiles(i).folder, xmlFiles(i).name);
         txt = fileread(xmlPath);
-        if ~isempty(regexp(txt, '\*\*Figure', 'once'))
+        scanText = stripXmlTagsForPlaceholderScan(txt);
+        if ~isempty(regexp(scanText, '(?i)\*\*\s*Figure', 'once'))
             tf = true;
             break;
         end
@@ -2800,21 +2859,16 @@ try
     for i = 1:numel(xmlFiles)
         xmlPath = fullfile(xmlFiles(i).folder, xmlFiles(i).name);
         txt = fileread(xmlPath);
-        starts = regexp(txt, '(?i)\*\*\s*Figure', 'start');
-        if isempty(starts)
+        scanText = stripXmlTagsForPlaceholderScan(txt);
+        tokens = getFigurePlaceholderTokensFromText(scanText);
+        if isempty(tokens)
             continue;
         end
-        localKeys = strings(numel(starts), 1);
+        localKeys = strings(numel(tokens), 1);
         nLocal = 0;
-        for k = 1:numel(starts)
+        for k = 1:numel(tokens)
             subNo = NaN;
-            tail = txt(starts(k):min(numel(txt), starts(k) + 120));
-            tokenText = regexprep(tail, '<[^>]+>', '');
-            tokenText = regexp(tokenText, '^[^\r\n]*', 'match', 'once');
-            tokenMatch = regexp(tokenText, '(?i)\*\*\s*Figure\s*\[\s*[^\]]+\s*\](?:\s*\[\s*\d+\s*\])?', 'match', 'once');
-            if isempty(tokenMatch)
-                continue;
-            end
+            tokenMatch = char(tokens(k));
             figRefParts = regexp(tokenMatch, '(?i)^\s*\*\*\s*Figure\s*\[\s*([^\]]+)\s*\]', 'tokens', 'once');
             if isempty(figRefParts)
                 continue;
@@ -2851,33 +2905,6 @@ end
 
 cleanupFiles({zipPath});
 cleanupTempDir(workDir);
-end
-
-function keys = getAllFigureKeys(plotConfig)
-figureNos = unique(plotConfig.("Figure No"), 'stable');
-subNosByFig = cell(numel(figureNos), 1);
-totalKeys = 0;
-for iFig = 1:numel(figureNos)
-    figNo = double(figureNos(iFig));
-    figRows = getFigureRowsForPlaceholder(plotConfig, figNo);
-    subNos = unique(figRows.("Subplot"), 'stable');
-    subNosByFig{iFig} = subNos;
-    totalKeys = totalKeys + 1 + numel(subNos);
-end
-
-keys = strings(totalKeys, 1);
-idx = 0;
-for iFig = 1:numel(figureNos)
-    figNo = double(figureNos(iFig));
-    idx = idx + 1;
-    keys(idx, 1) = string(buildFigureCacheKey(figNo, NaN));
-    subNos = subNosByFig{iFig};
-    for iSub = 1:numel(subNos)
-        idx = idx + 1;
-        keys(idx, 1) = string(buildFigureCacheKey(figNo, double(subNos(iSub))));
-    end
-end
-keys = unique(keys, 'stable');
 end
 
 function [figNo, subNo, ok] = parseFigureCacheKey(keyText)
