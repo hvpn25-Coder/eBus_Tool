@@ -2604,7 +2604,9 @@ for iSub = 1:numel(targetSubplots)
     hasRightYLabel = false;
 
     for iY = 1:height(yRows)
-        if ~shouldPlotRow(yRows(iY, :), false)
+        % Report-requested figures override the Print column. If a template
+        % asks for this figure, every valid Y row for it should be plotted.
+        if ~shouldPlotRow(yRows(iY, :), true)
             continue;
         end
 
