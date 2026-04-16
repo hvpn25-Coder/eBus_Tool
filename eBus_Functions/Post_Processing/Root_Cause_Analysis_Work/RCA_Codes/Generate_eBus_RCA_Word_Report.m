@@ -352,6 +352,8 @@ reportData.Company = string(options.Company);
 reportData.DateString = string(options.DateString);
 reportData.PlaceholderTag = string(options.PlaceholderTag);
 reportData.Language = string(options.Language);
+reportData.VehicleName = localResolveVehicleName(results, sourceInfo);
+reportData.TitleImages = localResolveTitlePageImages();
 reportData.RunSourceText = localResolveRunSourceText(results, sourceInfo);
 reportData.SignalCatalog = localGetNestedTable(results, {'Metadata', 'SignalCatalog'});
 reportData.SpecCatalog = localGetNestedTable(results, {'Metadata', 'SpecCatalog'});
@@ -378,6 +380,39 @@ reportData.SimulationConfigOverview = localBuildSimulationConfigOverview(results
 reportData.Executive = localBuildExecutiveSummary(reportData);
 reportData.Abbreviations = localBuildAbbreviationTable();
 reportData.SectionMap = localBuildSectionSourceMap();
+end
+
+function vehicleName = localResolveVehicleName(results, sourceInfo)
+vehicleName = "";
+matPath = localExtractSimulationMatPath(results);
+if strlength(string(matPath)) == 0 && nargin >= 2 && isstruct(sourceInfo) && isfield(sourceInfo, 'SourcePath')
+    matPath = string(sourceInfo.SourcePath);
+end
+
+if strlength(string(matPath)) > 0
+    [~, baseName, ext] = fileparts(char(matPath));
+    if strlength(string(baseName)) > 0 && ~strcmpi([baseName ext], 'RCA_Results.mat')
+        vehicleName = string(baseName);
+    end
+end
+
+if strlength(vehicleName) == 0
+    vehicleName = "Not available";
+end
+end
+
+function imageInfo = localResolveTitlePageImages()
+desktopRoot = fullfile(getenv('USERPROFILE'), 'OneDrive', 'Desktop');
+imageInfo = struct();
+imageInfo.Icon = string(fullfile(desktopRoot, 'Icon.png'));
+imageInfo.Bus = string(fullfile(desktopRoot, 'eBus_Image.png'));
+
+if ~isfile(char(imageInfo.Icon))
+    imageInfo.Icon = "";
+end
+if ~isfile(char(imageInfo.Bus))
+    imageInfo.Bus = "";
+end
 end
 
 function titleText = localLocalizedTitle(language)
@@ -1037,11 +1072,24 @@ end
 end
 
 function localWriteTitleOnlyPage(selection, reportData)
+if isfield(reportData, 'TitleImages') && isfield(reportData.TitleImages, 'Icon') && strlength(reportData.TitleImages.Icon) > 0
+    localInsertImage(selection, char(reportData.TitleImages.Icon), 85, 85, 2);
+    selection.TypeParagraph;
+end
+
 localApplyStyle(selection, 'Title');
 selection.TypeText('eBus Simulation Report');
 selection.TypeParagraph;
 selection.TypeParagraph;
+
+if isfield(reportData, 'TitleImages') && isfield(reportData.TitleImages, 'Bus') && strlength(reportData.TitleImages.Bus) > 0
+    localInsertImage(selection, char(reportData.TitleImages.Bus), 500, 150, 1);
+    selection.TypeParagraph;
+end
+
 localApplyStyle(selection, 'Subtitle');
+selection.TypeText(sprintf('Vehicle: %s', char(reportData.VehicleName)));
+selection.TypeParagraph;
 selection.TypeText(sprintf('Author: %s | Date: %s', char(reportData.Author), char(reportData.DateString)));
 selection.TypeParagraph;
 end
@@ -1055,6 +1103,7 @@ selection.TypeParagraph;
 
 localApplyStyle(selection, 'Normal');
 localTypeBoldLine(selection, 'Project / Program: ', reportData.Project);
+localTypeBoldLine(selection, 'Vehicle Name: ', reportData.VehicleName);
 localTypeBoldLine(selection, 'Author: ', reportData.Author);
 localTypeBoldLine(selection, 'Date: ', reportData.DateString);
 localTypeBoldLine(selection, 'Version: ', reportData.Version);
@@ -1256,10 +1305,11 @@ selection.TypeText(['This subsection summarizes the simulation configuration ass
     'The values below are resolved from the KPI-bank variable definitions against the loaded simulation context, so the report reflects the same configuration interpretation used in the DIVe KPI workflow.']);
 selection.TypeParagraph;
 if isfield(reportData, 'SimulationConfigOverview') && isstruct(reportData.SimulationConfigOverview) && reportData.SimulationConfigOverview.Available
+    configTableStyle = localSimulationConfigTableStyle();
     for iSection = 1:numel(reportData.SimulationConfigOverview.Sections)
         configSection = reportData.SimulationConfigOverview.Sections(iSection);
         localAddWordTable(doc, selection, sprintf('%s simulation configuration overview', configSection.Title), ...
-            configSection.Headers, configSection.Rows);
+            configSection.Headers, configSection.Rows, configTableStyle);
     end
 else
     selection.TypeText('[Insert simulation configuration overview resolved from KPI-bank variables such as cfg_veh, cfg_veh_route, cfg_batt_useable_en, and cfg_config_creator.]');
@@ -3599,6 +3649,13 @@ styleOptions.HeaderFontColor = localWordRgb(255, 255, 255);
 styleOptions.HeaderFontColorIndex = 8;
 end
 
+function styleOptions = localSimulationConfigTableStyle()
+styleOptions = struct();
+styleOptions.HeaderFillColor = localWordRgb(0, 153, 153);
+styleOptions.HeaderFontColor = localWordRgb(255, 255, 255);
+styleOptions.HeaderFontColorIndex = 8;
+end
+
 function localApplyHeaderCellStyle(wordCell, styleOptions)
 if ~isempty(styleOptions.HeaderFillColor)
     try
@@ -3630,6 +3687,50 @@ end
 
 function colorValue = localWordRgb(redValue, greenValue, blueValue)
 colorValue = redValue + bitshift(greenValue, 8) + bitshift(blueValue, 16);
+end
+
+function inlineShape = localInsertImage(selection, filePath, maxWidth, maxHeight, alignment)
+inlineShape = [];
+if nargin < 4
+    maxHeight = [];
+end
+if nargin < 5
+    alignment = [];
+end
+if strlength(string(filePath)) == 0 || ~isfile(char(filePath))
+    return;
+end
+
+try
+    if ~isempty(alignment)
+        selection.ParagraphFormat.Alignment = alignment;
+    end
+catch
+end
+
+try
+    inlineShape = selection.InlineShapes.AddPicture(char(filePath));
+    try
+        scale = 1;
+        if nargin >= 3 && ~isempty(maxWidth) && inlineShape.Width > maxWidth
+            scale = min(scale, maxWidth / inlineShape.Width);
+        end
+        if nargin >= 4 && ~isempty(maxHeight) && inlineShape.Height > maxHeight
+            scale = min(scale, maxHeight / inlineShape.Height);
+        end
+        if scale < 1
+            inlineShape.Width = inlineShape.Width * scale;
+            inlineShape.Height = inlineShape.Height * scale;
+        end
+    catch
+    end
+catch
+end
+
+try
+    selection.ParagraphFormat.Alignment = 0;
+catch
+end
 end
 
 function localAddFigure(selection, state, filePath, captionText)
