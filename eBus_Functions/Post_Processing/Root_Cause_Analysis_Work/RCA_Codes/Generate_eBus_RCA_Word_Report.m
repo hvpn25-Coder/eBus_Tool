@@ -1098,18 +1098,17 @@ end
 end
 
 function localWriteTitleOnlyPage(selection, reportData)
-if isfield(reportData, 'TitleImages') && isfield(reportData.TitleImages, 'Icon') && strlength(reportData.TitleImages.Icon) > 0
-    localInsertImage(selection, char(reportData.TitleImages.Icon), 85, 85, 2);
-    selection.TypeParagraph;
-end
-
 localApplyStyle(selection, 'Title');
 selection.TypeText('eBus Simulation Report');
 selection.TypeParagraph;
-selection.TypeParagraph;
 
 if isfield(reportData, 'TitleImages') && isfield(reportData.TitleImages, 'Bus') && strlength(reportData.TitleImages.Bus) > 0
-    localInsertImage(selection, char(reportData.TitleImages.Bus), 500, 150, 1);
+    localInsertImage(selection, char(reportData.TitleImages.Bus), 500, 170, 1);
+    selection.TypeParagraph;
+end
+
+if isfield(reportData, 'TitleImages') && isfield(reportData.TitleImages, 'Icon') && strlength(reportData.TitleImages.Icon) > 0
+    localInsertImage(selection, char(reportData.TitleImages.Icon), 115, 115, 1);
     selection.TypeParagraph;
 end
 
@@ -3802,7 +3801,11 @@ catch
 end
 
 try
-    inlineShape = selection.InlineShapes.AddPicture(char(filePath));
+    try
+        inlineShape = selection.InlineShapes.AddPicture(char(filePath), false, true);
+    catch
+        inlineShape = selection.InlineShapes.AddPicture(char(filePath));
+    end
     try
         scale = 1;
         if nargin >= 3 && ~isempty(maxWidth) && inlineShape.Width > maxWidth
@@ -3815,6 +3818,11 @@ try
             inlineShape.Width = inlineShape.Width * scale;
             inlineShape.Height = inlineShape.Height * scale;
         end
+    catch
+    end
+    try
+        inlineShape.Range.Select;
+        selection.Collapse(0);
     catch
     end
 catch
