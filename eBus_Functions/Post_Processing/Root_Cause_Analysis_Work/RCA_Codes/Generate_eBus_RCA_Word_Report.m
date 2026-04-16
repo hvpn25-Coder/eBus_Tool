@@ -57,6 +57,7 @@ try
     wordApp = actxserver('Word.Application');
     wordApp.Visible = false;
     wordApp.DisplayAlerts = 0;
+    localConfigureWordForFastAutomation(wordApp);
 catch wordException
     error('Generate_eBus_RCA_Word_Report:WordUnavailable', ...
         'Microsoft Word automation could not be started: %s', wordException.message);
@@ -177,6 +178,31 @@ try
         delete(progressState.Handle);
         drawnow;
     end
+catch
+end
+end
+
+function localConfigureWordForFastAutomation(wordApp)
+% Word COM is the slowest part of report creation. Disable UI-related work
+% while building the document; fields are updated explicitly before save.
+try
+    wordApp.ScreenUpdating = false;
+catch
+end
+try
+    wordApp.Options.Pagination = false;
+catch
+end
+try
+    wordApp.Options.CheckGrammarAsYouType = false;
+catch
+end
+try
+    wordApp.Options.CheckSpellingAsYouType = false;
+catch
+end
+try
+    wordApp.Options.BackgroundSave = false;
 catch
 end
 end
@@ -3531,6 +3557,88 @@ if size(rows, 2) < colCount
 end
 
 localAddCaption(selection, 'Table', captionText);
+[wordTable, createdFast] = localAddWordTableFast(doc, selection, headers, rows, colCount);
+if ~createdFast
+    wordTable = localAddWordTableCellByCell(doc, selection, headers, rows, colCount, styleOptions);
+end
+
+try
+    wordTable.Style = 'Table Grid';
+    wordTable.Borders.Enable = 1;
+    wordTable.Rows.Alignment = 1;
+catch
+end
+
+localApplyHeaderRowStyle(wordTable, styleOptions);
+localForceHeaderRowStyle(doc, wordTable, styleOptions);
+
+try
+    selection.SetRange(wordTable.Range.End, wordTable.Range.End);
+catch
+    try
+        selection.EndKey(6);
+    catch
+        selection.MoveDown;
+    end
+end
+selection.TypeParagraph;
+selection.TypeParagraph;
+end
+
+function [wordTable, createdFast] = localAddWordTableFast(doc, selection, headers, rows, colCount)
+wordTable = [];
+createdFast = false;
+
+try
+    tableText = localBuildDelimitedTableText(headers, rows, colCount);
+    startPos = selection.Range.End;
+    selection.TypeText(tableText);
+    endPos = selection.Range.End;
+    tableRange = doc.Range(startPos, endPos);
+    wordTable = tableRange.ConvertToTable(1, size(rows, 1) + 1, colCount);
+    createdFast = true;
+catch
+    try
+        if exist('tableRange', 'var')
+            tableRange.Delete;
+        end
+    catch
+    end
+end
+end
+
+function tableText = localBuildDelimitedTableText(headers, rows, colCount)
+lineSeparator = char(13);
+lines = cell(size(rows, 1) + 1, 1);
+lines{1} = localJoinDelimitedTableRow(headers, colCount);
+for iRow = 1:size(rows, 1)
+    lines{iRow + 1} = localJoinDelimitedTableRow(rows(iRow, :), colCount);
+end
+tableText = strjoin(lines, lineSeparator);
+end
+
+function lineText = localJoinDelimitedTableRow(rowValues, colCount)
+cellText = cell(1, colCount);
+for iCol = 1:colCount
+    if iCol <= numel(rowValues)
+        cellText{iCol} = localCellToWordTableText(rowValues{iCol});
+    else
+        cellText{iCol} = '';
+    end
+end
+lineText = strjoin(cellText, char(9));
+end
+
+function wordText = localCellToWordTableText(value)
+wordText = localCellToWordText(value);
+wordText = strrep(wordText, char(9), ' ');
+wordText = strrep(wordText, char(13), ' ');
+wordText = strrep(wordText, char(10), ' ');
+wordText = strrep(wordText, char(11), ' ');
+wordText = strtrim(wordText);
+end
+
+function wordTable = localAddWordTableCellByCell(doc, selection, headers, rows, colCount, styleOptions)
 wordTable = doc.Tables.Add(selection.Range, size(rows, 1) + 1, colCount);
 wordTable.Style = 'Table Grid';
 wordTable.Borders.Enable = 1;
@@ -3547,21 +3655,6 @@ for iRow = 1:size(rows, 1)
         wordTable.Cell(iRow + 1, iCol).Range.Text = localCellToWordText(rows{iRow, iCol});
     end
 end
-
-localApplyHeaderRowStyle(wordTable, styleOptions);
-localForceHeaderRowStyle(doc, wordTable, styleOptions);
-
-try
-    selection.SetRange(doc.Range.End - 1, doc.Range.End - 1);
-catch
-    try
-        selection.EndKey(6);
-    catch
-        selection.MoveDown;
-    end
-end
-selection.TypeParagraph;
-selection.TypeParagraph;
 end
 
 function localApplyHeaderRowStyle(wordTable, styleOptions)
@@ -3842,10 +3935,6 @@ end
 
 function localUpdateAllFields(doc)
 try
-    doc.Fields.Update;
-catch
-end
-try
     for iToc = 1:doc.TablesOfContents.Count
         doc.TablesOfContents.Item(iToc).Update;
     end
@@ -3858,9 +3947,7 @@ try
 catch
 end
 try
-    for iStory = 1:doc.StoryRanges.Count
-        doc.StoryRanges.Item(iStory).Fields.Update;
-    end
+    doc.Fields.Update;
 catch
 end
 end
