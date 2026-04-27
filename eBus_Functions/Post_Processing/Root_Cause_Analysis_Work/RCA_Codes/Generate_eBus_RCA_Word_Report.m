@@ -103,6 +103,13 @@ if strlength(templatePath) > 0
     fprintf('  Template : %s\n', templatePath);
     fprintf('  %s\n', localOpenFileHyperlink(templatePath, 'Open generated template'));
 end
+if strlength(samplePath) > 0
+    fprintf('  Sample   : %s\n', samplePath);
+    fprintf('  %s\n', localOpenFileHyperlink(samplePath, 'Open generated sample'));
+end
+localUpdateProgressBar(progressState, 6, 6, 'Word report generation completed');
+localCloseProgressBar(progressState);
+end
 
 function fileName = localReportFileName(language)
 if string(language) == "DE"
@@ -126,13 +133,6 @@ if string(language) == "DE"
 else
     fileName = 'eBus_Simulation_Root_Cause_Analysis_Report_Sample.docx';
 end
-end
-if strlength(samplePath) > 0
-    fprintf('  Sample   : %s\n', samplePath);
-    fprintf('  %s\n', localOpenFileHyperlink(samplePath, 'Open generated sample'));
-end
-localUpdateProgressBar(progressState, 6, 6, 'Word report generation completed');
-localCloseProgressBar(progressState);
 end
 
 function hyperlinkText = localOpenFileHyperlink(filePath, labelText)

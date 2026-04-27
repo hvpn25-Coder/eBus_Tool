@@ -352,17 +352,11 @@ meaning = "";
 
 switch lower(string(polarityToken))
     case "positive"
-        if contains(descriptionText, "positive for")
-            tokenText = extractAfter(descriptionText, "positive for");
-        else
-            tokenText = "";
-        end
+        tokenText = localExtractAfterFirstPattern(descriptionText, ...
+            ["positive for", "positive is", "positive =", "positive:", "+ve for", "+ve is", "+ve =", "+ve:"]);
     case "negative"
-        if contains(descriptionText, "negative for")
-            tokenText = extractAfter(descriptionText, "negative for");
-        else
-            tokenText = "";
-        end
+        tokenText = localExtractAfterFirstPattern(descriptionText, ...
+            ["negative for", "negative is", "negative =", "negative:", "-ve for", "-ve is", "-ve =", "-ve:"]);
     otherwise
         tokenText = "";
 end
@@ -394,5 +388,27 @@ elseif contains(tokenText, "brak")
     meaning = "braking";
 else
     meaning = strtrim(tokenText);
+end
+end
+
+function tokenText = localExtractAfterFirstPattern(descriptionText, patterns)
+tokenText = "";
+descriptionText = string(descriptionText);
+patterns = string(patterns(:));
+
+bestPos = inf;
+bestPattern = "";
+descriptionChar = char(descriptionText);
+for iPattern = 1:numel(patterns)
+    patternChar = char(patterns(iPattern));
+    pos = strfind(descriptionChar, patternChar);
+    if ~isempty(pos) && pos(1) < bestPos
+        bestPos = pos(1);
+        bestPattern = patterns(iPattern);
+    end
+end
+
+if isfinite(bestPos)
+    tokenText = extractAfter(descriptionText, bestPos + strlength(bestPattern) - 1);
 end
 end
