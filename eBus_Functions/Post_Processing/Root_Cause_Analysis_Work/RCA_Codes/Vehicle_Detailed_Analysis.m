@@ -114,9 +114,6 @@ assignin('base', 'RCA_VehicleKPI', vehicleKPI);
 assignin('base', 'RCA_SegmentSummary', segmentSummary);
 assignin('base', 'RCA_RootCauseRanking', rootCauseRanking);
 
-fprintf('\nSignal presence summary:\n');
-disp(signalPresence(:, {'SignalName', 'Description', 'Unit', 'Status', 'Subsystem'}));
-
 fprintf('\nVehicle RCA completed. Key outputs:\n');
 fprintf('  Vehicle KPI rows     : %d\n', height(vehicleKPI));
 fprintf('  Segment summary rows : %d\n', height(segmentSummary));
