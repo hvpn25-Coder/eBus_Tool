@@ -114,11 +114,6 @@ assignin('base', 'RCA_VehicleKPI', vehicleKPI);
 assignin('base', 'RCA_SegmentSummary', segmentSummary);
 assignin('base', 'RCA_RootCauseRanking', rootCauseRanking);
 
-fprintf('\nVehicle RCA completed. Key outputs:\n');
-fprintf('  Vehicle KPI rows     : %d\n', height(vehicleKPI));
-fprintf('  Segment summary rows : %d\n', height(segmentSummary));
-fprintf('  Root-cause rows      : %d\n', height(rootCauseRanking));
-fprintf('  Output folder        : %s\n', outputPaths.Root);
 localPrintActionLinks();
 localUpdateProgressBar(progressState, totalSteps, totalSteps, 'RCA execution completed');
 localCloseProgressBar(progressState);
