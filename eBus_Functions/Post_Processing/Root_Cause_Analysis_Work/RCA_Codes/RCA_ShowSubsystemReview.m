@@ -309,8 +309,7 @@ end
 function localPrintFollowUpLinks()
 fprintf('\nTo View More RCA''s [%s]\n', localMatlabHyperlink( ...
     'RCA_ShowMoreActions(RCA_Results, ''RCA'');', 'Open RCA review list'));
-fprintf('To View more KPI''s, Plots, Deep Analysis... [%s]\n', localMatlabHyperlink( ...
-    'RCA_ShowMoreActions(RCA_Results, ''DETAIL'');', 'Open KPI, plot, and deep-analysis links'));
+fprintf('To View more KPI''s, Plots, Deep Analysis or Generate Report <a href="matlab:feval(openKpiPlotsViewMore)">[view more...]</a>\n');
 end
 
 function hyperlinkText = localMatlabHyperlink(commandText, labelText)
