@@ -271,6 +271,7 @@ try
         progressState.Handle = waitbar(0, initialMessage, 'Name', titleText, ...
             'CreateCancelBtn', '', 'WindowStyle', 'normal');
         progressState.Enabled = ishghandle(progressState.Handle);
+        localSetProgressTextInterpreter(progressState.Handle);
     end
 catch
     progressState = struct('Handle', [], 'Enabled', false);
@@ -284,7 +285,16 @@ end
 try
     fraction = max(0, min(1, double(currentStep) / max(double(totalSteps), 1)));
     waitbar(fraction, progressState.Handle, messageText);
+    localSetProgressTextInterpreter(progressState.Handle);
     drawnow limitrate;
+catch
+end
+end
+
+function localSetProgressTextInterpreter(progressHandle)
+try
+    textHandles = findall(progressHandle, 'Type', 'text');
+    set(textHandles, 'Interpreter', 'none');
 catch
 end
 end

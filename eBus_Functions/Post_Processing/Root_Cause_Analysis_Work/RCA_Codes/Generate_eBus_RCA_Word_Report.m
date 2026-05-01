@@ -151,6 +151,7 @@ try
         progressState.Handle = waitbar(0, initialMessage, 'Name', titleText, ...
             'CreateCancelBtn', '', 'WindowStyle', 'normal');
         progressState.Enabled = ishghandle(progressState.Handle);
+        localSetProgressTextInterpreter(progressState.Handle);
     end
 catch
     progressState = struct('Handle', [], 'Enabled', false);
@@ -164,7 +165,16 @@ end
 try
     fraction = max(0, min(1, double(currentStep) / max(double(totalSteps), 1)));
     waitbar(fraction, progressState.Handle, char(string(messageText)));
+    localSetProgressTextInterpreter(progressState.Handle);
     drawnow limitrate;
+catch
+end
+end
+
+function localSetProgressTextInterpreter(progressHandle)
+try
+    textHandles = findall(progressHandle, 'Type', 'text');
+    set(textHandles, 'Interpreter', 'none');
 catch
 end
 end
@@ -220,7 +230,7 @@ defaults.Company = "Company / Department [Insert]";
 defaults.IncludeAppendixTables = true;
 defaults.MaxAppendixRows = 120;
 defaults.MaxSummaryRows = 12;
-defaults.MaxSubsystemFigures = 10;
+defaults.MaxSubsystemFigures = Inf;
 defaults.TemplateSubtitle = "Vehicle-Level and Subsystem-Level Technical Assessment";
 defaults.PlaceholderTag = "[Insert]";
 defaults.DateString = string(datetime('now', 'Format', 'dd-MMM-yyyy'));
@@ -2447,7 +2457,7 @@ localWriteLabelParagraph(selection, 'Signals used', localFormatSignalList(sub.Re
 if istable(sub.KPITable) && height(sub.KPITable) > 0
     localAddWordTable(doc, selection, sprintf('%s KPI summary', subsystemLabel), ...
         sub.KPITable.Properties.VariableNames, ...
-        localTableToCellRows(sub.KPITable(1:min(15, height(sub.KPITable)), :)));
+        localTableToCellRows(sub.KPITable));
 else
     localWriteLabelParagraph(selection, 'Key KPIs', sprintf('[Insert %s KPI summary table.]', subsystemLabel));
 end

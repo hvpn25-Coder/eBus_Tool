@@ -89,10 +89,11 @@ if isempty(figureFiles)
 else
     for iFile = 1:numel(figureFiles)
         figureTitle = sprintf('Vehicle RCA Figure %d', iFile);
-        fprintf('  %d. %s (%s)\n', iFile, ...
+        figureLabel = localFigureDisplayName(figureFiles(iFile));
+        fprintf('  %d. %s\n', iFile, ...
             localMatlabHyperlink(sprintf('RCA_OpenReviewFigure(%s, %s);', ...
             localMatlabStringLiteral(figureFiles(iFile)), localMatlabStringLiteral(figureTitle)), ...
-            'Open MATLAB figure'), char(localFigureDisplayName(figureFiles(iFile))));
+            char(figureLabel)));
     end
 end
 
