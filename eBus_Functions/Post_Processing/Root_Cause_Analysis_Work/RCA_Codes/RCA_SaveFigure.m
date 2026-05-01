@@ -11,6 +11,7 @@ end
 
 safeName = regexprep(char(string(baseName)), '[^a-zA-Z0-9_\-]', '_');
 figurePath = fullfile(outputFolder, [safeName '.png']);
+matlabFigurePath = fullfile(outputFolder, [safeName '.fig']);
 
 set(figHandle, 'Color', 'w');
 set(findall(figHandle, '-property', 'FontSize'), 'FontSize', config.Plot.FontSize);
@@ -26,5 +27,12 @@ try
     exportgraphics(figHandle, figurePath, 'Resolution', 150);
 catch
     saveas(figHandle, figurePath);
+end
+
+try
+    savefig(figHandle, matlabFigurePath);
+catch
+    % PNG export is the report-critical artifact. FIG export is optional and
+    % used by RCA review hyperlinks for interactive MATLAB inspection.
 end
 end

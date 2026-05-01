@@ -88,8 +88,11 @@ if isempty(figureFiles)
     fprintf('  No saved vehicle figures were found.\n');
 else
     for iFile = 1:numel(figureFiles)
-        fprintf('  %d. %s\n', iFile, char(figureFiles(iFile)));
-        localOpenImageFigure(figureFiles(iFile), sprintf('Vehicle RCA Figure %d', iFile));
+        figureTitle = sprintf('Vehicle RCA Figure %d', iFile);
+        fprintf('  %d. %s (%s)\n', iFile, ...
+            localMatlabHyperlink(sprintf('RCA_OpenReviewFigure(%s, %s);', ...
+            localMatlabStringLiteral(figureFiles(iFile)), localMatlabStringLiteral(figureTitle)), ...
+            'Open MATLAB figure'), char(localFigureDisplayName(figureFiles(iFile))));
     end
 end
 
@@ -151,25 +154,19 @@ end
 figureFiles = localExistingFiles(string(results.VehiclePlots.Files(:)));
 end
 
-function localOpenImageFigure(filePath, figureName)
-try
-    imageData = imread(char(filePath));
-    fig = figure('Color', 'w', 'Name', figureName, 'NumberTitle', 'off');
-    ax = axes('Parent', fig);
-    image(ax, imageData);
-    axis(ax, 'image');
-    axis(ax, 'off');
-    title(ax, figureName, 'Interpreter', 'none');
-catch imageException
-    warning('RCA_ShowVehicleReview:FigureOpen', ...
-        'Could not display figure %s: %s', char(filePath), imageException.message);
-end
-end
-
 function files = localExistingFiles(fileList)
 fileList = string(fileList(:));
 mask = arrayfun(@(x) strlength(x) > 0 && isfile(char(x)), fileList);
 files = fileList(mask);
+end
+
+function displayName = localFigureDisplayName(filePath)
+[folderPath, nameOnly, extension] = fileparts(char(string(filePath)));
+displayName = string([nameOnly extension]);
+figPath = fullfile(folderPath, [nameOnly '.fig']);
+if isfile(figPath)
+    displayName = string([nameOnly '.fig']);
+end
 end
 
 function localPrintPlainTable(inputTable)
@@ -253,4 +250,8 @@ end
 
 function hyperlinkText = localMatlabHyperlink(commandText, labelText)
 hyperlinkText = sprintf('<a href="matlab:%s">%s</a>', commandText, labelText);
+end
+
+function literal = localMatlabStringLiteral(value)
+literal = ['''' strrep(char(string(value)), '''', '''''') ''''];
 end

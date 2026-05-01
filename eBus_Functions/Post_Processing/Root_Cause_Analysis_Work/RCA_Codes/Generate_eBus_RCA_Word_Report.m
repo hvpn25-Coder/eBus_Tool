@@ -1317,7 +1317,7 @@ selection.TypeParagraph;
 modelFigurePath = localCreateDiveModuleOverviewFigure(state, reportData);
 if strlength(modelFigurePath) > 0 && isfile(modelFigurePath)
     localAddFigure(selection, state, char(modelFigurePath), ...
-        'DIVe module overview generated from custom cDMD output, showing populated module slots grouped into control, human, boundary, and physics blocks.');
+        'DIVe module overview.');
 else
     selection.TypeText('[Insert DIVe module overview diagram generated from custom cDMD output.]');
     selection.TypeParagraph;
@@ -1578,13 +1578,14 @@ selection.TypeParagraph;
 
 localAddHeading(selection, '10.0 Methodology Flow Chart', 2);
 selection.TypeText(['The flow chart below summarizes the end-to-end RCA workflow used in the MATLAB automation. ', ...
-    'It shows how workbook metadata, MAT signals, derived calculations, event-based segmentation, and subsystem drill-down are combined before report generation.']);
+    'It is drawn as a single main execution path so the reader can follow the processing order without interpreting dependency arrows as alternate branches. ', ...
+    'Workbook metadata, MAT signals, derived calculations, event-based segmentation, bad-segment analysis, and subsystem drill-down are combined before report generation.']);
 selection.TypeParagraph;
 
 flowChartPath = localCreateMethodologyFlowChart(state, reportData);
 if strlength(flowChartPath) > 0 && isfile(flowChartPath)
     localAddFigure(selection, state, char(flowChartPath), ...
-        'Methodology flow chart showing the end-to-end RCA process from workbook and MAT inputs to KPI generation, bad-segment detection, subsystem RCA, and report output.');
+        'RCA methodology flow.');
 else
     selection.TypeText('[Insert methodology flow chart showing input ingestion, signal audit, alignment, derived signal generation, segmentation, KPI generation, bad-segment selection, root-cause scoring, subsystem RCA, and report generation.]');
     selection.TypeParagraph;
@@ -1602,7 +1603,7 @@ subsections = { ...
     '10.9 Confidence Ranking of Findings'};
 
 texts = { ...
-    'The workflow begins with workbook-driven metadata parsing and MAT-file inspection. Signals are then validated, extracted, aligned to a common time basis, and converted into physically interpretable derived traces before any KPI or RCA logic is run. The workflow then splits into vehicle-level KPI generation, event-based segment generation, bad-segment identification, cause ranking, subsystem RCA, and final reporting. This ordering matters because the RCA is not a free-form observation engine; it is a traceable evidence pipeline.', ...
+    'The workflow begins with workbook-driven metadata parsing and MAT-file inspection. Signals are then validated, extracted, aligned to a common time basis, and converted into physically interpretable derived traces before any KPI or RCA logic is run. The workflow then proceeds through vehicle-level KPI generation, event-based segment generation, bad-segment identification, cause ranking, subsystem RCA, and final reporting. This ordering matters because the RCA is not a free-form observation engine; it is a traceable evidence pipeline.', ...
     'KPIs are computed using base MATLAB only. Integrations and averages are designed to be tolerant to finite-sample gaps, duplicate time repairs, and partial signal availability. Each KPI carries name, value, unit, category, subsystem, signal basis, and limitation note so the report can distinguish a complete calculation from an approximate or partially observed one. This makes the RCA auditable and reviewable when questions arise about a specific metric.', ...
     'Vehicle-level assessment combines speed tracking, energy flow, power balance, force balance, efficiency, range sensitivity, loss breakdown, gear behaviour, and environmental context to explain what the bus did over the full trip. The vehicle layer is the place where route-level symptoms are identified first, before responsibility is pushed into subsystem drill-down.', ...
     'Subsystem drill-downs run only when the relevant signals are available. Each subsystem section reports role, signals used, key KPIs, observed issue patterns, root cause candidates, and recommended improvements. The subsystem RCA therefore acts as an evidence-refinement stage: it explains whether a vehicle-level symptom is linked to controller behaviour, electrical limitations, driveline loss mechanisms, route loads, or auxiliary burden.', ...
@@ -1678,23 +1679,17 @@ try
     localDrawFlowArrow(ax, [0.44 0.835], [0.51 0.835]);
     localDrawFlowArrow(ax, [0.67 0.835], [0.74 0.835]);
 
-    localDrawFlowArrow(ax, [0.59 0.78], [0.22 0.65]);
-    localDrawFlowArrow(ax, [0.59 0.78], [0.50 0.65]);
-    localDrawFlowArrow(ax, [0.84 0.78], [0.80 0.65]);
-
+    localDrawFlowArrow(ax, [0.84 0.78], [0.20 0.65]);
     localDrawFlowArrow(ax, [0.30 0.59], [0.40 0.59]);
     localDrawFlowArrow(ax, [0.60 0.59], [0.70 0.59]);
-
     localDrawFlowArrow(ax, [0.80 0.53], [0.29 0.39]);
-    localDrawFlowArrow(ax, [0.80 0.53], [0.63 0.39]);
-
-    localDrawFlowArrow(ax, [0.29 0.27], [0.48 0.17]);
+    localDrawFlowArrow(ax, [0.40 0.33], [0.52 0.33]);
     localDrawFlowArrow(ax, [0.63 0.27], [0.52 0.17]);
 
     text(ax, 0.50, 0.96, 'RCA Methodology Flow Chart', 'HorizontalAlignment', 'center', ...
         'FontSize', 17, 'FontWeight', 'bold', 'Color', [0.10 0.10 0.10]);
     text(ax, 0.50, 0.93, ...
-        'Traceable workflow from workbook and MAT inputs to event-based RCA, subsystem drill-down, and final reporting', ...
+        'Single main execution path from workbook and MAT inputs to KPI generation, bad-segment RCA, subsystem drill-down, and reporting', ...
         'HorizontalAlignment', 'center', 'FontSize', 10.5, 'Color', [0.25 0.25 0.25]);
 
     exportgraphics(fig, char(figurePath), 'Resolution', 180, 'BackgroundColor', 'white');
@@ -1750,13 +1745,14 @@ localAddHeading(selection, '10.6.1 Bad Segment Detection Flow', 3);
 selection.TypeText(['Bad-segment detection is not a separate raw re-segmentation step. ', ...
     'The workflow first creates the base segment table, then evaluates each segment against efficiency-severity, performance-severity, and loss-severity evidence. ', ...
     'Any segment that trips one or more poor-performance / poor-efficiency / high-loss flags becomes a bad-segment candidate. ', ...
+    'The only intentional branch in this flow is the Candidate decision: flagged segments move directly to the shortlist, while simulations with no explicit flags use fallback worst-severity ranking. ', ...
     'If no segment crosses those flags, the RCA still forces review of the worst segments by severity ranking so the report always contains a prioritized engineering issue list.']);
 selection.TypeParagraph;
 
 badFlowChartPath = localCreateBadSegmentFlowChart(state, reportData);
 if strlength(badFlowChartPath) > 0 && isfile(badFlowChartPath)
     localAddFigure(selection, state, char(badFlowChartPath), ...
-        'Detailed bad-segment analysis flow chart showing how segment KPI, severity flags, fallback shortlist logic, and cause ranking are combined before the final bad-segment table is built.');
+        'Bad-segment analysis flow.');
 else
     selection.TypeText('[Insert bad-segment flow chart showing segment KPI inputs, flag logic, fallback shortlist generation, cause scoring, and final bad-segment table generation.]');
     selection.TypeParagraph;
@@ -1837,11 +1833,15 @@ try
     localDrawFlowArrow(ax, [0.50 0.845], [0.57 0.845]);
     localDrawFlowArrow(ax, [0.75 0.845], [0.80 0.845]);
     localDrawFlowArrow(ax, [0.87 0.79], [0.51 0.65]);
-    localDrawFlowArrow(ax, [0.22 0.79], [0.22 0.65]);
+    text(ax, 0.67, 0.70, 'Yes', 'HorizontalAlignment', 'center', 'FontSize', 9.5, ...
+        'FontWeight', 'bold', 'Color', [0.20 0.20 0.20]);
+    localDrawFlowArrow(ax, [0.83 0.79], [0.22 0.65]);
+    text(ax, 0.53, 0.70, 'No explicit flags', 'HorizontalAlignment', 'center', 'FontSize', 9.5, ...
+        'FontWeight', 'bold', 'Color', [0.20 0.20 0.20]);
     localDrawFlowArrow(ax, [0.32 0.59], [0.41 0.59]);
     localDrawFlowArrow(ax, [0.61 0.59], [0.70 0.59]);
     localDrawFlowArrow(ax, [0.80 0.53], [0.30 0.38]);
-    localDrawFlowArrow(ax, [0.52 0.53], [0.67 0.38]);
+    localDrawFlowArrow(ax, [0.42 0.32], [0.56 0.32]);
 
     text(ax, 0.50, 0.96, 'Bad-Segment Analysis Methodology Flow', 'HorizontalAlignment', 'center', ...
         'FontSize', 17, 'FontWeight', 'bold', 'Color', [0.10 0.10 0.10]);
@@ -3723,9 +3723,9 @@ end
 
 function styleOptions = localNormalizeWordTableStyle(styleOptions)
 defaults = struct();
-defaults.HeaderFillColor = [];
-defaults.HeaderFontColor = [];
-defaults.HeaderFontColorIndex = [];
+defaults.HeaderFillColor = localWordRgb(0, 32, 96);
+defaults.HeaderFontColor = localWordRgb(255, 255, 255);
+defaults.HeaderFontColorIndex = 8;
 for iField = string(fieldnames(defaults))'
     fieldName = char(iField);
     if ~isfield(styleOptions, fieldName) || isempty(styleOptions.(fieldName))
@@ -3736,14 +3736,14 @@ end
 
 function styleOptions = localSegmentTableStyle()
 styleOptions = struct();
-styleOptions.HeaderFillColor = localWordRgb(31, 78, 121);
+styleOptions.HeaderFillColor = localWordRgb(0, 32, 96);
 styleOptions.HeaderFontColor = localWordRgb(255, 255, 255);
 styleOptions.HeaderFontColorIndex = 8;
 end
 
 function styleOptions = localSimulationConfigTableStyle()
 styleOptions = struct();
-styleOptions.HeaderFillColor = localWordRgb(0, 153, 153);
+styleOptions.HeaderFillColor = localWordRgb(0, 32, 96);
 styleOptions.HeaderFontColor = localWordRgb(255, 255, 255);
 styleOptions.HeaderFontColorIndex = 8;
 end
