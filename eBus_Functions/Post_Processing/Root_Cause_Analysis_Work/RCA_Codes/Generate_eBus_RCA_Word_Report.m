@@ -3557,6 +3557,7 @@ styleOptions = localNormalizeWordTableStyle(styleOptions);
 
 headers = cellstr(string(headers(:)'));
 rows = localEnsureCellMatrix(rows);
+[headers, rows] = localFormatKpiColumnsForReport(headers, rows);
 colCount = max(numel(headers), size(rows, 2));
 if numel(headers) < colCount
     headers(end + 1:colCount) = {''};
@@ -3592,6 +3593,49 @@ catch
 end
 selection.TypeParagraph;
 selection.TypeParagraph;
+end
+
+function [headers, rows] = localFormatKpiColumnsForReport(headers, rows)
+headerNames = string(headers);
+normalized = upper(regexprep(headerNames, '[^A-Za-z0-9]', ''));
+isKpiLike = any(normalized == "KPINAME") || any(normalized == "STATUSNOTE") || ...
+    any(normalized == "SIGNALBASIS") || any(normalized == "CATEGORY");
+
+if ~isKpiLike
+    return;
+end
+
+valueIdx = find(normalized == "VALUE", 1, 'first');
+unitIdx = find(normalized == "UNIT", 1, 'first');
+if ~isempty(valueIdx) && ~isempty(unitIdx) && valueIdx <= size(rows, 2) && unitIdx <= size(rows, 2)
+    for iRow = 1:size(rows, 1)
+        valueText = strtrim(string(localCellToWordText(rows{iRow, valueIdx})));
+        unitText = strtrim(string(localCellToWordText(rows{iRow, unitIdx})));
+        if unitText == "" || unitText == "-" || strcmpi(unitText, "NaN")
+            rows{iRow, valueIdx} = char(valueText);
+        elseif valueText == ""
+            rows{iRow, valueIdx} = char(unitText);
+        else
+            rows{iRow, valueIdx} = char(strtrim(valueText + " " + unitText));
+        end
+    end
+    headers{valueIdx} = 'Value';
+end
+
+removeIdx = [];
+if ~isempty(unitIdx)
+    removeIdx(end + 1) = unitIdx; %#ok<AGROW>
+end
+signalBasisIdx = find(normalized == "SIGNALBASIS", 1, 'first');
+if ~isempty(signalBasisIdx)
+    removeIdx(end + 1) = signalBasisIdx; %#ok<AGROW>
+end
+removeIdx = unique(removeIdx);
+removeIdx(removeIdx < 1 | removeIdx > numel(headers)) = [];
+if ~isempty(removeIdx)
+    headers(removeIdx) = [];
+    rows(:, removeIdx) = [];
+end
 end
 
 function [wordTable, createdFast] = localAddWordTableFast(doc, selection, headers, rows, colCount)

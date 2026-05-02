@@ -30,6 +30,7 @@ if isfile(candidateFig)
     try
         fig = openfig(candidateFig, 'new', 'visible');
         set(fig, 'Name', figureName, 'NumberTitle', 'off', 'Color', 'w');
+        RCA_PrepareInteractiveFigure(fig);
         drawnow;
         return;
     catch openException
@@ -52,6 +53,7 @@ try
     axis(ax, 'image');
     axis(ax, 'off');
     title(ax, figureName, 'Interpreter', 'none');
+    RCA_PrepareInteractiveFigure(fig);
     drawnow;
 catch imageException
     warning('RCA_OpenReviewFigure:ImageOpenFailed', ...
