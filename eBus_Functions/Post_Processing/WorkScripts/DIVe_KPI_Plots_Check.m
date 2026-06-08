@@ -1713,7 +1713,7 @@ try
     wordApp = actxserver('Word.Application');
     docObj = wordApp.Documents.Open(docPath, false, false, false);
     try
-        keys = getReferencedPlaceholderKeysInText(string(docObj.Content.Text), placeholderMap);
+        keys = getReferencedPlaceholderKeysInText(getWordDocumentText(docObj), placeholderMap);
     catch
         keys = getOrderedPlaceholderKeys(placeholderMap);
     end
@@ -1743,7 +1743,7 @@ try
     wordApp = actxserver('Word.Application');
     docObj = wordApp.Documents.Open(docPath, false, false, false);
     try
-        allText = string(docObj.Content.Text);
+        allText = getWordDocumentText(docObj);
         tokens = getFigurePlaceholderTokensFromText(allText);
         if ~isempty(tokens)
             for i = 1:numel(tokens)
@@ -1784,8 +1784,22 @@ cleanupWordFigureAutomation(wordApp, docObj, imageMap);
 end
 
 function replaceWordTokenEverywhere(docObj, tokenText, replacementText)
-docEnd = docObj.Content.End;
-searchRange = docObj.Range(0, docEnd);
+rangeList = getWordTextRanges(docObj);
+for iRange = 1:numel(rangeList)
+    replaceWordTokenInRange(rangeList{iRange}, tokenText, replacementText);
+end
+end
+
+function replaceWordTokenWithImage(docObj, tokenText, imgPath)
+rangeList = getWordTextRanges(docObj);
+for iRange = 1:numel(rangeList)
+    replaceWordTokenWithImageInRange(rangeList{iRange}, tokenText, imgPath);
+end
+end
+
+function replaceWordTokenInRange(rangeObj, tokenText, replacementText)
+searchRange = rangeObj.Duplicate;
+rangeEnd = searchRange.End;
 while true
     findObj = searchRange.Find;
     configureWordFind(findObj, tokenText);
@@ -1795,17 +1809,18 @@ while true
     end
     searchRange.Text = char(replacementText);
     nextStart = searchRange.End;
-    docEnd = docObj.Content.End;
-    if nextStart >= docEnd
+    if nextStart >= rangeEnd
         break;
     end
-    searchRange = docObj.Range(nextStart, docEnd);
+    searchRange = rangeObj.Duplicate;
+    searchRange.Start = nextStart;
+    searchRange.End = rangeEnd;
 end
 end
 
-function replaceWordTokenWithImage(docObj, tokenText, imgPath)
-docEnd = docObj.Content.End;
-searchRange = docObj.Range(0, docEnd);
+function replaceWordTokenWithImageInRange(rangeObj, tokenText, imgPath)
+searchRange = rangeObj.Duplicate;
+rangeEnd = searchRange.End;
 while true
     findObj = searchRange.Find;
     configureWordFind(findObj, tokenText);
@@ -1822,11 +1837,12 @@ while true
     end
 
     nextStart = searchRange.End;
-    docEnd = docObj.Content.End;
-    if nextStart >= docEnd
+    if nextStart >= rangeEnd
         break;
     end
-    searchRange = docObj.Range(nextStart, docEnd);
+    searchRange = rangeObj.Duplicate;
+    searchRange.Start = nextStart;
+    searchRange.End = rangeEnd;
 end
 end
 
@@ -2014,6 +2030,57 @@ for iSection = 1:sectionCount
             shapeCollections{end + 1} = secObj.Footers.Item(iFooter).Shapes; %#ok<AGROW>
         catch
         end
+    end
+end
+end
+
+function textOut = getWordDocumentText(docObj)
+rangeList = getWordTextRanges(docObj);
+chunks = strings(numel(rangeList), 1);
+for iRange = 1:numel(rangeList)
+    try
+        chunks(iRange) = string(rangeList{iRange}.Text);
+    catch
+        chunks(iRange) = "";
+    end
+end
+textOut = join(chunks, newline);
+end
+
+function rangeList = getWordTextRanges(docObj)
+rangeList = {};
+try
+    rangeList{end + 1} = docObj.Content.Duplicate;
+catch
+end
+
+try
+    sectionCount = docObj.Sections.Count;
+catch
+    sectionCount = 0;
+end
+for iSection = 1:sectionCount
+    try
+        secObj = docObj.Sections.Item(iSection);
+    catch
+        continue;
+    end
+
+    rangeList = appendWordStoryRanges(rangeList, secObj.Headers);
+    rangeList = appendWordStoryRanges(rangeList, secObj.Footers);
+end
+end
+
+function rangeList = appendWordStoryRanges(rangeList, storyCollection)
+try
+    storyCount = storyCollection.Count;
+catch
+    storyCount = 0;
+end
+for iStory = 1:storyCount
+    try
+        rangeList{end + 1} = storyCollection.Item(iStory).Range.Duplicate; %#ok<AGROW>
+    catch
     end
 end
 end
