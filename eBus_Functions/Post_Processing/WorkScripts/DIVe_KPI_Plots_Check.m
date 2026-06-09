@@ -2127,7 +2127,24 @@ end
 
 tokenStrings = string(tokens(:));
 keyStrings = string(keys(:));
-keys = keys(ismember(keyStrings, tokenStrings));
+matchedMask = ismember(keyStrings, tokenStrings);
+
+% Office XML can concatenate neighboring text nodes when tags are stripped,
+% e.g. a real *batt_en token may scan as *batt_en0327025. Recover the
+% longest known placeholder prefix so the actual split XML replacement runs.
+for iToken = 1:numel(tokenStrings)
+    tokenText = tokenStrings(iToken);
+    if any(keyStrings == tokenText)
+        continue;
+    end
+    prefixHits = find(startsWith(tokenText, keyStrings));
+    if isempty(prefixHits)
+        continue;
+    end
+    matchedMask(prefixHits(1)) = true;
+end
+
+keys = keys(matchedMask);
 end
 
 function tokens = extractTextPlaceholderTokens(textIn)
